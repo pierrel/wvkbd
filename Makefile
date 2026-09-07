@@ -1,7 +1,7 @@
 include config.mk
 
 NAME=wvkbd
-BIN=${NAME}-${LAYOUT}
+BIN?=${NAME}-${LAYOUT}
 SRC=.
 MAN1 = ${NAME}.1
 
@@ -39,8 +39,8 @@ proto/%-client-protocol.h: proto/%.xml
 
 $(OBJECTS): $(HDRS) $(WVKBD_HEADERS)
 
-wvkbd-${LAYOUT}: config.h $(OBJECTS) layout.${LAYOUT}.h
-	$(CC) -o wvkbd-${LAYOUT} $(OBJECTS) $(LDFLAGS)
+${BIN}: config.h $(OBJECTS) layout.${LAYOUT}.h
+	$(CC) -o $@ $(OBJECTS) $(LDFLAGS)
 
 clean:
 	rm -f $(OBJECTS) $(HDRS) $(WAYLAND_SRC) ${BIN} ${DOCS}
@@ -53,8 +53,8 @@ format:
 
 install: all
 	mkdir -p ${DESTDIR}${PREFIX}/bin
-	cp -f ${NAME}-${LAYOUT} ${DESTDIR}${PREFIX}/bin
-	chmod 755 ${DESTDIR}${PREFIX}/bin/${NAME}-${LAYOUT}
+	cp -f ${BIN} ${DESTDIR}${PREFIX}/bin
+	chmod 755 ${DESTDIR}${PREFIX}/bin/${BIN}
 	mkdir -p "${DESTDIR}${MANPREFIX}/man1"
 	sed "s/VERSION/${VERSION}/g" < ${MAN1} > ${DESTDIR}${MANPREFIX}/man1/${MAN1}
 	chmod 644 ${DESTDIR}${MANPREFIX}/man1/${MAN1}
