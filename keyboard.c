@@ -507,6 +507,15 @@ kbd_press_key(struct kbd *kb, struct key *k, uint32_t time)
 }
 
 void
+kbd_activate_key(struct kbd *kb, struct key *k, uint32_t time,
+                 uint8_t transient_modifier)
+{
+    kb->mods |= transient_modifier;
+    kbd_press_key(kb, k, time);
+    kbd_release_key(kb, time);
+}
+
+void
 kbd_print_key_stdout(struct kbd *kb, struct key *k)
 {
     /* printed keys may slightly differ from the actual output
@@ -560,11 +569,20 @@ kbd_clear_last_popup(struct kbd *kb)
     }
 }
 
-void
-kbd_draw_key(struct kbd *kb, struct key *k, enum key_draw_type type)
+static const char *
+kbd_key_label(struct kbd *kb, struct key *k)
 {
-    const char *label = ((kb->mods & Shift)||((kb->mods & CapsLock) && 
-        strlen(k->label) == 1 && isalpha(k->label[0]))) ? k->shift_label : k->label;
+    return ((kb->mods & Shift) ||
+            ((kb->mods & CapsLock) && strlen(k->label) == 1 &&
+             isalpha(k->label[0])))
+             ? k->shift_label
+             : k->label;
+}
+
+static void
+kbd_draw_key_label(struct kbd *kb, struct key *k, enum key_draw_type type,
+                   const char *label)
+{
     if (kb->debug)
         fprintf(stderr, "Draw key +%d+%d %dx%d -> %s\n", k->x, k->y, k->w, k->h,
                 label);
@@ -608,6 +626,36 @@ kbd_draw_key(struct kbd *kb, struct key *k, enum key_draw_type type)
         wl_surface_damage(kb->popup_surf->surf, k->x, kb->last_popup_y, k->w,
                           k->h);
     }
+}
+
+void
+kbd_draw_key(struct kbd *kb, struct key *k, enum key_draw_type type)
+{
+    kbd_draw_key_label(kb, k, type, kbd_key_label(kb, k));
+}
+
+void
+kbd_show_key_feedback(struct kbd *kb, struct key *k, const char *prefix)
+{
+    char feedback[64];
+    const char *label = kbd_key_label(kb, k);
+
+    if (prefix) {
+        snprintf(feedback, sizeof(feedback), "%s%s", prefix, label);
+        label = feedback;
+    }
+    kbd_draw_key_label(kb, k, Press, label);
+    drwsurf_flip(kb->surf);
+    drwsurf_flip(kb->popup_surf);
+}
+
+void
+kbd_clear_key_feedback(struct kbd *kb, struct key *k)
+{
+    kbd_draw_key(kb, k, Unpress);
+    drwsurf_flip(kb->surf);
+    kbd_clear_last_popup(kb);
+    drwsurf_flip(kb->popup_surf);
 }
 
 void
