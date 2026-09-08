@@ -1,5 +1,7 @@
 include config.mk
 
+.PHONY: all clean format install test test-cli
+
 NAME=wvkbd
 BIN?=${NAME}-${LAYOUT}
 SRC=.
@@ -23,6 +25,7 @@ SOURCES = $(WVKBD_SOURCES) $(WAYLAND_SRC)
 
 SCDOC=scdoc
 DOCS = wvkbd.1
+TEST_BIN = tests/test-mod-swipe
 
 OBJECTS = $(SOURCES:.c=.o)
 
@@ -43,7 +46,16 @@ ${BIN}: config.h $(OBJECTS) layout.${LAYOUT}.h
 	$(CC) -o $@ $(OBJECTS) $(LDFLAGS)
 
 clean:
-	rm -f $(OBJECTS) $(HDRS) $(WAYLAND_SRC) ${BIN} ${DOCS}
+	rm -f $(OBJECTS) $(HDRS) $(WAYLAND_SRC) ${BIN} ${DOCS} ${TEST_BIN}
+
+test: ${TEST_BIN} test-cli
+	./${TEST_BIN}
+
+${TEST_BIN}: tests/test-mod-swipe.c mod-swipe.c mod-swipe.h
+	$(CC) -std=c99 -Wall -Wextra -Werror -I. -o $@ tests/test-mod-swipe.c mod-swipe.c
+
+test-cli: ${BIN}
+	tests/test-cli.sh ./${BIN}
 
 format:
 	clang-format -i $(WVKBD_SOURCES) $(WVKBD_HEADERS)
