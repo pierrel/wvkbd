@@ -31,8 +31,8 @@ can be patched to add new features.
 
 *--mod-swipe*
 	Defer ordinary character keys until release. Swipe up for Control plus the
-	character or down for Alt plus the character. The gesture requires 40% of
-	the key height, with a 12-pixel minimum, and twice as much vertical as
+	character or down for Alt plus the character. The gesture requires the floor
+	of 40% of the key height, with a 12-pixel minimum, and twice as much vertical as
 	horizontal movement. Horizontal or diagonal movement reaching the threshold
 	cancels the key. This option disables hold repeat for character keys and
 	cannot be combined with *-O*.
