@@ -31,11 +31,13 @@ can be patched to add new features.
 
 *--mod-swipe*
 	Defer ordinary character keys until release. Swipe up for Control plus the
-	character or down for Alt plus the character. The gesture requires the floor
-	of 40% of the key height, with a 12-pixel minimum, and twice as much vertical as
-	horizontal movement. Horizontal or diagonal movement reaching the threshold
-	cancels the key. This option disables hold repeat for character keys and
-	cannot be combined with *-O*.
+	character or down for Alt plus the character. On a primary Latin layout, a
+	continuing horizontal or diagonal letter trace inserts one local dictionary
+	match; Space, punctuation, and unknown traces remain explicit/no-output.
+	The short vertical gesture requires the floor of 40% of the key height, with
+	a 12-pixel minimum, and twice as much vertical as horizontal movement. This
+	option disables hold repeat for character keys and cannot be combined with
+	*-O*.
 
 *-l* _layers_
 	comma separated list of layers in vertical/portrait mode.

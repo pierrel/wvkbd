@@ -5,6 +5,7 @@
 #include <sys/mman.h>
 #include <ctype.h>
 #include "keyboard.h"
+#include "letters.h"
 #include "drw.h"
 #include "os-compatibility.h"
 
@@ -656,6 +657,65 @@ kbd_clear_key_feedback(struct kbd *kb, struct key *k)
     drwsurf_flip(kb->surf);
     kbd_clear_last_popup(kb);
     drwsurf_flip(kb->popup_surf);
+}
+
+bool
+kbd_glide_letter(struct kbd *kb, const struct key *key, char *letter)
+{
+    return kb->compose == 0 && kb->layout && kb->layout->abc &&
+           kb->layout->keymap_name && strcmp(kb->layout->keymap_name, "latin") == 0 &&
+           key && key->type == Code && !(kb->mods & (Ctrl | Alt | Super | AltGr)) &&
+           glide_letter_from_evdev(key->code, letter);
+}
+
+bool
+kbd_key_changes_interpretation(const struct kbd *kb, const struct key *key)
+{
+    if (!key) {
+        return false;
+    }
+    if (kb->compose == 1 && key->type != Compose && key->type != Mod) {
+        return true;
+    }
+    return key->type == Layout || key->type == NextLayer ||
+           key->type == BackLayer || key->type == Copy;
+}
+
+bool
+kbd_emit_ascii_word(struct kbd *kb, const char *word, size_t length,
+                    uint32_t time)
+{
+    uint32_t codes[24];
+    bool shifted;
+
+    if (!word || length == 0 || length > sizeof(codes) / sizeof(codes[0])) {
+        return false;
+    }
+    for (size_t i = 0; i < length; i++) {
+        if (!glide_letter_to_evdev(word[i], &codes[i])) {
+            return false;
+        }
+    }
+    shifted = (kb->mods & Shift) != 0;
+    zwp_virtual_keyboard_v1_modifiers(kb->vkbd, kb->mods, 0, 0, 0);
+    for (size_t i = 0; i < length; i++) {
+        zwp_virtual_keyboard_v1_key(kb->vkbd, time, codes[i],
+                                    WL_KEYBOARD_KEY_STATE_PRESSED);
+        zwp_virtual_keyboard_v1_key(kb->vkbd, time, codes[i],
+                                    WL_KEYBOARD_KEY_STATE_RELEASED);
+        if (i == 0 && shifted) {
+            kb->mods &= ~Shift;
+            zwp_virtual_keyboard_v1_modifiers(kb->vkbd, kb->mods, 0, 0, 0);
+        }
+    }
+    if (kb->print) {
+        for (size_t i = 0; i < length; i++) {
+            bool uppercase = (i == 0 && shifted) || (kb->mods & CapsLock);
+            putchar(uppercase ? toupper((unsigned char)word[i]) : word[i]);
+        }
+        fflush(stdout);
+    }
+    return true;
 }
 
 void

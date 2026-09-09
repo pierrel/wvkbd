@@ -142,6 +142,10 @@ void kbd_clear_last_popup(struct kbd *kb);
 void kbd_draw_key(struct kbd *kb, struct key *k, enum key_draw_type);
 void kbd_show_key_feedback(struct kbd *kb, struct key *k, const char *prefix);
 void kbd_clear_key_feedback(struct kbd *kb, struct key *k);
+bool kbd_glide_letter(struct kbd *kb, const struct key *key, char *letter);
+bool kbd_key_changes_interpretation(const struct kbd *kb, const struct key *key);
+bool kbd_emit_ascii_word(struct kbd *kb, const char *word, size_t length,
+                         uint32_t time);
 void kbd_draw_layout(struct kbd *kb);
 void kbd_resize(struct kbd *kb, struct layout *layouts, uint8_t layoutcount);
 uint8_t kbd_get_rows(struct layout *l);

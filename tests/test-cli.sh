@@ -7,7 +7,7 @@ scratch=$(mktemp -d)
 trap 'rm -rf -- "$scratch"' EXIT HUP INT TERM
 
 "$binary" --help >"$scratch/help" 2>&1
-grep -F -- '--mod-swipe - Swipe character keys up for Ctrl, down for Alt' \
+grep -F -- '--mod-swipe - Tap, Ctrl/Alt swipe, or glide Latin letters' \
     "$scratch/help" >/dev/null
 if "$binary" --mod-swipe -O >"$scratch/incompatible" 2>&1; then
     printf '%s\n' 'incompatible output mode was accepted' >&2

@@ -1,6 +1,6 @@
 include config.mk
 
-.PHONY: all clean format install test test-cli
+.PHONY: all clean format install test test-cli test-sanitize
 
 NAME=wvkbd
 BIN?=${NAME}-${LAYOUT}
@@ -25,7 +25,7 @@ SOURCES = $(WVKBD_SOURCES) $(WAYLAND_SRC)
 
 SCDOC=scdoc
 DOCS = wvkbd.1
-TEST_BIN = tests/test-mod-swipe
+TEST_BIN = tests/test-mod-swipe tests/test-glide tests/bench-glide
 
 OBJECTS = $(SOURCES:.c=.o)
 
@@ -49,10 +49,24 @@ clean:
 	rm -f $(OBJECTS) $(HDRS) $(WAYLAND_SRC) ${BIN} ${DOCS} ${TEST_BIN}
 
 test: ${TEST_BIN} test-cli
-	./${TEST_BIN}
+	./tests/test-mod-swipe
+	./tests/test-glide
+	./tests/bench-glide --max-us 50000
 
-${TEST_BIN}: tests/test-mod-swipe.c mod-swipe.c mod-swipe.h
-	$(CC) -std=c99 -Wall -Wextra -Werror -I. -o $@ tests/test-mod-swipe.c mod-swipe.c
+tests/test-mod-swipe: tests/test-mod-swipe.c mod-swipe.c mod-swipe.h letters.c letters.h
+	$(CC) -std=c99 -Wall -Wextra -Werror -I. -o $@ tests/test-mod-swipe.c mod-swipe.c letters.c
+
+tests/test-glide: tests/test-glide.c glide.c glide.h glide-words-en.h
+	$(CC) -std=c11 -Wall -Wextra -Werror -I. -o $@ tests/test-glide.c glide.c
+
+tests/bench-glide: tests/bench-glide.c glide.c glide.h glide-words-en.h
+	$(CC) -std=c11 -Wall -Wextra -Werror -I. -o $@ tests/bench-glide.c glide.c
+
+test-sanitize:
+	$(MAKE) clean
+	$(MAKE) CFLAGS='-std=gnu99 -Wall -g -fsanitize=address,undefined' LDFLAGS='-fsanitize=address,undefined' tests/test-mod-swipe tests/test-glide
+	ASAN_OPTIONS=detect_leaks=1 ./tests/test-mod-swipe
+	ASAN_OPTIONS=detect_leaks=1 ./tests/test-glide
 
 test-cli: ${BIN}
 	tests/test-cli.sh ./${BIN}
