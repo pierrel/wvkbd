@@ -5,9 +5,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "glide.h"
+
 struct key;
 
-#define MOD_SWIPE_MAX_TRACE 64
 #define MOD_SWIPE_MAX_MOTIONS 2048
 
 enum mod_swipe_action {
@@ -38,8 +39,8 @@ struct mod_swipe_state {
     bool invalid;
     bool trace_changed;
     bool entered_glide;
-    char trace[MOD_SWIPE_MAX_TRACE];
-    struct key *trace_keys[MOD_SWIPE_MAX_TRACE];
+    char trace[GLIDE_MAX_TRACE];
+    struct key *trace_keys[GLIDE_MAX_TRACE];
     size_t trace_length;
     enum mod_swipe_action action;
     struct key *key;
@@ -50,8 +51,7 @@ struct mod_swipe_result {
     uint32_t time;
     enum mod_swipe_action action;
     struct key *key;
-    char trace[MOD_SWIPE_MAX_TRACE];
-    struct key *trace_keys[MOD_SWIPE_MAX_TRACE];
+    char trace[GLIDE_MAX_TRACE];
     size_t trace_length;
     bool invalid;
 };

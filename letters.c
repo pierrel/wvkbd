@@ -8,7 +8,8 @@ struct glide_letter_code {
     uint32_t code;
 };
 
-/* Linux letter keycodes are noncontiguous: this is the sole conversion table. */
+/* Linux letter keycodes are noncontiguous: this is the sole conversion table.
+ */
 static const struct glide_letter_code glide_letters[] = {
     {'a', KEY_A}, {'b', KEY_B}, {'c', KEY_C}, {'d', KEY_D}, {'e', KEY_E},
     {'f', KEY_F}, {'g', KEY_G}, {'h', KEY_H}, {'i', KEY_I}, {'j', KEY_J},
@@ -21,9 +22,11 @@ static const struct glide_letter_code glide_letters[] = {
 bool
 glide_letter_from_evdev(uint32_t code, char *letter)
 {
-    for (size_t i = 0; i < sizeof(glide_letters) / sizeof(glide_letters[0]); i++) {
+    for (size_t i = 0; i < sizeof(glide_letters) / sizeof(glide_letters[0]);
+         i++) {
         if (glide_letters[i].code == code) {
-            if (letter) *letter = glide_letters[i].letter;
+            if (letter)
+                *letter = glide_letters[i].letter;
             return true;
         }
     }
@@ -33,9 +36,11 @@ glide_letter_from_evdev(uint32_t code, char *letter)
 bool
 glide_letter_to_evdev(char letter, uint32_t *code)
 {
-    for (size_t i = 0; i < sizeof(glide_letters) / sizeof(glide_letters[0]); i++) {
+    for (size_t i = 0; i < sizeof(glide_letters) / sizeof(glide_letters[0]);
+         i++) {
         if (glide_letters[i].letter == letter) {
-            if (code) *code = glide_letters[i].code;
+            if (code)
+                *code = glide_letters[i].code;
             return true;
         }
     }

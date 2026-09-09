@@ -30,10 +30,12 @@ can be patched to add new features.
 	print intersected keys to standard output.
 
 *--mod-swipe*
-	Defer ordinary character keys until release. Swipe up for Control plus the
-	character or down for Alt plus the character. On a primary Latin layout, a
+	Defer ordinary character keys until release. A tap types the character once;
+	a short upward/downward swipe emits Control/Alt plus it. On a primary Latin
+	layout, a
 	continuing horizontal or diagonal letter trace inserts one local dictionary
-	match; Space, punctuation, and unknown traces remain explicit/no-output.
+	match. Space remains a tap. Punctuation does not glide, but retains its tap
+	and short Control/Alt modifier-swipe behavior; unknown traces insert nothing.
 	The short vertical gesture requires the floor of 40% of the key height, with
 	a 12-pixel minimum, and twice as much vertical as horizontal movement. This
 	option disables hold repeat for character keys and cannot be combined with

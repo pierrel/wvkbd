@@ -84,7 +84,8 @@ types the character once, a short upward swipe emits Ctrl plus the character,
 and a short downward swipe emits Alt plus the character. On a primary Latin
 layout, a continuing horizontal or diagonal letter trace can instead insert one
 bounded local dictionary match. The popup clears until that trace qualifies,
-then the crossed keys are highlighted. Space and punctuation remain taps; an
+then the crossed keys are highlighted. Space remains a tap. Punctuation does
+not glide, but retains its tap and short Ctrl/Alt modifier-swipe behavior; an
 unknown trace inserts nothing. The threshold is the floor of 40% of the key
 height, with a 12-pixel minimum, and vertical movement must be at least twice
 the horizontal movement for the short Ctrl/Alt result.

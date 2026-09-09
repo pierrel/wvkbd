@@ -12,6 +12,7 @@ struct glide_match {
     size_t length;
 };
 
-bool glide_recognize(const char *trace, size_t length, struct glide_match *match);
+bool glide_recognize(const char *trace, size_t length,
+                     struct glide_match *match);
 
 #endif

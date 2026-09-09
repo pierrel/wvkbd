@@ -16,25 +16,15 @@ reset(struct mod_swipe_state *state)
     *state = (struct mod_swipe_state){0};
 }
 
-static bool
-has_two_distinct_letters(const struct mod_swipe_state *state)
-{
-    for (size_t i = 1; i < state->trace_length; i++) {
-        if (state->trace[i] != state->trace[0]) {
-            return true;
-        }
-    }
-    return false;
-}
-
 static void
 append_letter(struct mod_swipe_state *state, struct key *key, char letter)
 {
     if (letter < 'a' || letter > 'z' || state->invalid ||
-        (state->trace_length && state->trace[state->trace_length - 1] == letter)) {
+        (state->trace_length &&
+         state->trace[state->trace_length - 1] == letter)) {
         return;
     }
-    if (state->trace_length == MOD_SWIPE_MAX_TRACE) {
+    if (state->trace_length == GLIDE_MAX_TRACE) {
         state->invalid = true;
         return;
     }
@@ -50,7 +40,8 @@ maybe_enter_glide(struct mod_swipe_state *state)
 
     if (!state->glide_capable || state->invalid ||
         state->action == ModSwipeGlide || state->action == ModSwipeCancelled ||
-        !has_two_distinct_letters(state) || state->travel < 2 * (uint64_t)state->threshold ||
+        state->trace_length < 2 ||
+        state->travel < 2 * (uint64_t)state->threshold ||
         span < state->threshold) {
         return;
     }
@@ -139,16 +130,19 @@ mod_swipe_update(struct mod_swipe_state *state, int32_t touch_id, int32_t x,
     state->trace_changed = false;
     state->entered_glide = false;
     previous = state->action;
-    if (state->motions++ == MOD_SWIPE_MAX_MOTIONS) {
+    if (state->motions >= MOD_SWIPE_MAX_MOTIONS) {
         state->invalid = true;
         return false;
     }
+    state->motions++;
     state->travel += magnitude((int64_t)x - state->last_x) +
                      magnitude((int64_t)y - state->last_y);
     state->last_x = x;
     state->last_y = y;
-    if (x < state->min_x) state->min_x = x;
-    if (x > state->max_x) state->max_x = x;
+    if (x < state->min_x)
+        state->min_x = x;
+    if (x > state->max_x)
+        state->max_x = x;
     append_letter(state, key, letter);
     if (state->action == ModSwipeGlide) {
         return state->trace_changed;
@@ -160,7 +154,8 @@ mod_swipe_update(struct mod_swipe_state *state, int32_t touch_id, int32_t x,
     if (state->action == ModSwipePending &&
         (horizontal >= state->threshold || vertical >= state->threshold)) {
         if (vertical >= state->threshold && vertical >= horizontal * 2) {
-            state->action = dy < 0 ? ModSwipeControlCandidate : ModSwipeAltCandidate;
+            state->action =
+                dy < 0 ? ModSwipeControlCandidate : ModSwipeAltCandidate;
         } else {
             state->action = state->glide_capable ? ModSwipeGlideCandidate
                                                  : ModSwipeCancelled;
@@ -179,8 +174,6 @@ finish(struct mod_swipe_state *state, uint32_t time,
     result->action = state->action;
     result->key = state->key;
     memcpy(result->trace, state->trace, state->trace_length);
-    memcpy(result->trace_keys, state->trace_keys,
-           state->trace_length * sizeof(state->trace_keys[0]));
     result->trace_length = state->trace_length;
     result->invalid = state->invalid;
     reset(state);

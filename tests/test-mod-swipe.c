@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "letters.h"
 #include "mod-swipe.h"
@@ -68,7 +69,8 @@ test_tap_and_competing_ids(void)
     struct mod_swipe_result result;
 
     assert(mod_swipe_begin(&state, 7, 100, 200, 10, &first_key, 60, true, 'a'));
-    assert(!mod_swipe_begin(&state, 8, 100, 200, 11, &second_key, 60, true, 'b'));
+    assert(
+        !mod_swipe_begin(&state, 8, 100, 200, 11, &second_key, 60, true, 'b'));
     assert(!mod_swipe_update(&state, 8, 100, 150, 12, &second_key, 'b'));
     assert(!mod_swipe_update(&state, 7, 105, 190, 12, &first_key, 'a'));
     assert(!mod_swipe_finish(&state, 8, 13, &result));
@@ -125,7 +127,8 @@ test_cancellation_and_signed_coordinates(void)
 
     assert(mod_swipe_begin(&state, 1, INT32_MAX, INT32_MAX, 30, &first_key, 60,
                            true, 0));
-    assert(mod_swipe_update(&state, 1, INT32_MIN, INT32_MAX, 31, &first_key, 0));
+    assert(
+        mod_swipe_update(&state, 1, INT32_MIN, INT32_MAX, 31, &first_key, 0));
     assert(state.action == ModSwipeCancelled);
 }
 
@@ -143,6 +146,91 @@ test_passthrough_capture(void)
     assert(result.action == ModSwipePending);
 }
 
+static void
+test_glide_boundaries_and_takeover(void)
+{
+    struct mod_swipe_state state = {0};
+    struct mod_swipe_result result;
+
+    assert(mod_swipe_begin(&state, 1, 100, 200, 0, &first_key, 60, true, 'h'));
+    assert(mod_swipe_update(&state, 1, 124, 200, 1, &second_key, 'e'));
+    assert(state.action == ModSwipeGlideCandidate);
+    assert(state.trace_length == 2);
+    assert(mod_swipe_finish(&state, 1, 2, &result));
+    assert(result.action == ModSwipeGlideCandidate);
+
+    assert(mod_swipe_begin(&state, 1, 100, 200, 0, &first_key, 60, true, 'h'));
+    assert(mod_swipe_update(&state, 1, 100, 176, 1, &first_key, 'h'));
+    assert(state.action == ModSwipeControlCandidate);
+    assert(mod_swipe_update(&state, 1, 130, 176, 2, &second_key, 'e'));
+    assert(state.action == ModSwipeGlide);
+    assert(mod_swipe_finish(&state, 1, 3, &result));
+    assert(result.action == ModSwipeGlide);
+    assert(result.trace_length == 2);
+    assert(memcmp(result.trace, "he", 2) == 0);
+
+    assert(mod_swipe_begin(&state, 1, 100, 200, 0, &first_key, 60, true, 'h'));
+    assert(mod_swipe_update(&state, 1, 100, 176, 1, &second_key, 'e'));
+    assert(state.action == ModSwipeControlCandidate);
+    assert(mod_swipe_update(&state, 1, 100, 128, 2, &first_key, 'h'));
+    assert(state.action == ModSwipeControlCandidate);
+    assert(mod_swipe_finish(&state, 1, 3, &result));
+    assert(result.action == ModSwipeControlCandidate);
+}
+
+static void
+test_trace_and_motion_limits(void)
+{
+    struct mod_swipe_state state = {0};
+    struct mod_swipe_result result;
+
+    assert(mod_swipe_begin(&state, 1, 0, 0, 0, &first_key, 30, true, 'a'));
+    for (size_t i = 1; i < GLIDE_MAX_TRACE; i++) {
+        char letter = (char)('a' + (i % 26));
+
+        if (letter == state.trace[state.trace_length - 1]) {
+            letter = 'z';
+        }
+        assert(mod_swipe_update(&state, 1, (int32_t)i * 12, 0, (uint32_t)i,
+                                &second_key, letter));
+    }
+    assert(state.trace_length == GLIDE_MAX_TRACE);
+    assert(!state.invalid);
+    assert(!mod_swipe_update(&state, 1, 1000, 0, 70, &second_key, 'q'));
+    assert(state.invalid);
+    assert(mod_swipe_finish(&state, 1, 71, &result));
+    assert(result.invalid);
+
+    assert(mod_swipe_begin(&state, 1, 0, 0, 0, &first_key, 30, true, 'a'));
+    for (uint32_t i = 0; i < MOD_SWIPE_MAX_MOTIONS; i++) {
+        assert(!mod_swipe_update(&state, 1, (int32_t)(i & 1), 0, i + 1,
+                                 &first_key, 'a'));
+    }
+    assert(state.motions == MOD_SWIPE_MAX_MOTIONS);
+    assert(!state.invalid);
+    assert(!mod_swipe_update(&state, 1, 0, 0, MOD_SWIPE_MAX_MOTIONS + 1,
+                             &first_key, 'a'));
+    assert(state.invalid);
+}
+
+static void
+test_all_letters_trace(void)
+{
+    for (char letter = 'a'; letter <= 'z'; letter++) {
+        struct mod_swipe_state state = {0};
+        struct mod_swipe_result result;
+
+        assert(mod_swipe_begin(&state, letter, 0, 0, 0, &first_key, 30, true,
+                               letter));
+        assert(state.glide_capable);
+        assert(state.trace_length == 1);
+        assert(state.trace[0] == letter);
+        assert(mod_swipe_finish(&state, letter, 1, &result));
+        assert(result.trace_length == 1);
+        assert(result.trace[0] == letter);
+    }
+}
+
 int
 main(void)
 {
@@ -152,6 +240,9 @@ main(void)
     test_control_and_alt_latch();
     test_cancellation_and_signed_coordinates();
     test_passthrough_capture();
+    test_glide_boundaries_and_takeover();
+    test_trace_and_motion_limits();
+    test_all_letters_trace();
     puts("modifier swipe tests passed");
     return 0;
 }

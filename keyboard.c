@@ -5,6 +5,7 @@
 #include <sys/mman.h>
 #include <ctype.h>
 #include "keyboard.h"
+#include "glide.h"
 #include "letters.h"
 #include "drw.h"
 #include "os-compatibility.h"
@@ -663,8 +664,9 @@ bool
 kbd_glide_letter(struct kbd *kb, const struct key *key, char *letter)
 {
     return kb->compose == 0 && kb->layout && kb->layout->abc &&
-           kb->layout->keymap_name && strcmp(kb->layout->keymap_name, "latin") == 0 &&
-           key && key->type == Code && !(kb->mods & (Ctrl | Alt | Super | AltGr)) &&
+           kb->layout->keymap_name &&
+           strcmp(kb->layout->keymap_name, "latin") == 0 && key &&
+           key->type == Code && !(kb->mods & (Ctrl | Alt | Super | AltGr)) &&
            glide_letter_from_evdev(key->code, letter);
 }
 
@@ -685,7 +687,8 @@ bool
 kbd_emit_ascii_word(struct kbd *kb, const char *word, size_t length,
                     uint32_t time)
 {
-    uint32_t codes[24];
+    uint32_t codes[GLIDE_MAX_WORD];
+    char printed[GLIDE_MAX_WORD];
     bool shifted;
 
     if (!word || length == 0 || length > sizeof(codes) / sizeof(codes[0])) {
@@ -710,9 +713,11 @@ kbd_emit_ascii_word(struct kbd *kb, const char *word, size_t length,
     }
     if (kb->print) {
         for (size_t i = 0; i < length; i++) {
-            bool uppercase = (i == 0 && shifted) || (kb->mods & CapsLock);
-            putchar(uppercase ? toupper((unsigned char)word[i]) : word[i]);
+            bool uppercase =
+                (i == 0 && shifted) != ((kb->mods & CapsLock) != 0);
+            printed[i] = uppercase ? toupper((unsigned char)word[i]) : word[i];
         }
+        fwrite(printed, 1, length, stdout);
         fflush(stdout);
     }
     return true;
