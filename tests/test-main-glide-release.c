@@ -623,6 +623,21 @@ test_glide_draw_order(void)
     assert(memcmp(draw_events, "LCKKFF", draw_event_count) == 0);
 }
 
+static void
+test_non_code_key_cannot_extend_glide_trace(void)
+{
+    struct key modifier = {.type = Mod, .code = KEY_A};
+
+    reset();
+    popup_xdg_surface_configured = true;
+    next_key = &modifier;
+    seed_deferred_glide();
+    wl_touch_motion(NULL, NULL, 2, 1, wl_fixed_from_int(48), 0);
+    assert(mod_swipe.trace_length == 1);
+    assert(mod_swipe.trace[0] == 'h');
+    assert(!mod_swipe.endpoint_mapped);
+}
+
 int
 main(void)
 {
@@ -633,6 +648,7 @@ main(void)
     test_invalid_release_actions();
     test_glide_no_match_feedback();
     test_glide_draw_order();
+    test_non_code_key_cannot_extend_glide_trace();
     test_cancel_active_input();
     test_lifecycle_boundaries();
     test_orientation_output_and_configure();

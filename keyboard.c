@@ -2,6 +2,7 @@
 #include <linux/input-event-codes.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <ctype.h>
 #include "keyboard.h"

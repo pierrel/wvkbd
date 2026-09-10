@@ -350,7 +350,7 @@ wl_touch_motion(void *data, struct wl_touch *wl_touch, uint32_t time,
             intersection = touch_x >= 0 && touch_y >= 0
                                ? kbd_get_key(&keyboard, touch_x, touch_y)
                                : NULL;
-            if (intersection) {
+            if (intersection && intersection->type == Code) {
                 glide_letter_from_evdev(intersection->code, &letter);
             }
             mod_swipe_update(&mod_swipe, id, touch_x, touch_y, time,
