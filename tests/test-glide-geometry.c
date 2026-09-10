@@ -197,8 +197,8 @@ test_rejects_bad_paths(struct kbd *keyboard,
 }
 
 static void
-test_rejects_unmapped_endpoint(struct kbd *keyboard,
-                               const struct glide_geometry *geometry)
+test_recognizer_accepts_trace_before_endpoint_gate(
+    struct kbd *keyboard, const struct glide_geometry *geometry)
 {
     struct trace trace = trace_word(keyboard, "hello", true);
     struct glide_match match;
@@ -218,7 +218,7 @@ main(void)
     assert(kbd_glide_geometry(&keyboard, &geometry));
     test_full_geometry();
     test_rejects_bad_paths(&keyboard, &geometry);
-    test_rejects_unmapped_endpoint(&keyboard, &geometry);
+    test_recognizer_accepts_trace_before_endpoint_gate(&keyboard, &geometry);
     puts("glide geometry tests passed");
     return 0;
 }

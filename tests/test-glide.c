@@ -40,12 +40,13 @@ main(void)
                                         "llllllllllllllll"
                                         "oooooooooooooooo";
     static const char malformed[] = {'a', (char)0xff};
-    static const char too_long[GLIDE_MAX_TRACE + 1] = {['\0'] = 'a'};
+    char too_long[GLIDE_MAX_TRACE + 1];
     struct glide_geometry current = geometry();
     struct glide_point points[GLIDE_MAX_TRACE] = {0};
     struct glide_match match;
 
     expect("helo", "hello");
+    memset(too_long, 'a', sizeof(too_long));
     assert(sizeof(longest_trace) - 1 == GLIDE_MAX_TRACE);
     expect(longest_trace, "hello");
     expect("area", "area");
