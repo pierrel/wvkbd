@@ -7,7 +7,7 @@ scratch=$(mktemp -d)
 trap 'rm -rf -- "$scratch"' EXIT HUP INT TERM
 
 "$binary" --help >"$scratch/help" 2>&1
-grep -F -- '--mod-swipe - Swipe character keys up for Ctrl, down for Alt' \
+grep -F -- '--mod-swipe - Tap, Ctrl/Alt swipe, or glide Latin letters' \
     "$scratch/help" >/dev/null
 if "$binary" --mod-swipe -O >"$scratch/incompatible" 2>&1; then
     printf '%s\n' 'incompatible output mode was accepted' >&2
@@ -17,6 +17,16 @@ grep -Fx -- '--mod-swipe cannot be combined with -O' \
     "$scratch/incompatible" >/dev/null
 if grep -F 'Failed to create display' "$scratch/incompatible" >/dev/null; then
     printf '%s\n' 'incompatible options reached Wayland setup' >&2
+    exit 1
+fi
+
+if XDG_RUNTIME_DIR="$scratch" WAYLAND_DISPLAY=missing "$binary" --mod-swipe -o >"$scratch/compatible" 2>&1; then
+    printf '%s\n' '--mod-swipe -o unexpectedly exited without a display' >&2
+    exit 1
+fi
+grep -Fx -- 'Failed to create display' "$scratch/compatible" >/dev/null
+if grep -F -- 'cannot be combined' "$scratch/compatible" >/dev/null; then
+    printf '%s\n' '--mod-swipe -o was rejected before Wayland setup' >&2
     exit 1
 fi
 

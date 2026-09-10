@@ -1,0 +1,40 @@
+#+title: Modifier-preserving glide typing implementation amendment
+#+date: 2026-09-09
+
+* Lineage
+
+This amendment implements =2026-09-08-glide-modifier-keyboard.org=.  The
+earlier document remains the design-phase record; this one records the local
+implementation and verification boundary.
+
+* Implementation
+
+The modifier-swipe state now owns the fixed live letter/key trace and returns
+only the collapsed-letter data required at release.  Invalid deferred gestures
+of every action clear once and emit nothing.  Glide entry redraws the layout and
+clears the stale popup before drawing the trace.  The direct word emitter uses
+the explicit letter table, preserves CapsLock, consumes one-shot Shift, and
+uses their XOR for printed =-o= case.
+
+The generated dictionary stores packed word bytes, ranks, and bucket ranges.
+The generator rejects a combined payload above 256 KiB; the C compile-time
+assertion checks that same combined payload.  There is no per-word offset table;
+each bucket retains its =byte_start= into the packed word bytes.
+
+* Historical supersessions
+
+This supersedes the earlier =Dictionary provenance and generation= subsection
+in =2026-09-08-glide-modifier-keyboard.org=.
+
+* Local verification
+
+Native tests cover gesture bounds and invalid releases, production release
+redraw order and lifecycle cancellation, direct batch emission, all 26 letter
+admissions and mappings, the exact-nanosecond benchmark boundary, and raw-byte
+fuzz inputs including length 65.  The dictionary gate is explicitly run with
+the pinned =wordninja_words.txt.gz= source and checks reproducibility,
+wrong-size rejection, and wrong-hash rejection.
+
+No AArch64 or phone test, deployment, push, or pull request occurred.  The
+implementation commit is =71cfe87=; these current review fixes remain
+uncommitted and no reviewed replacement commit exists.

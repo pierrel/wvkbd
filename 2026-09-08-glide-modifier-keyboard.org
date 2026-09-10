@@ -1,0 +1,454 @@
+#+title: Modifier-preserving glide typing design
+#+date: 2026-09-08
+
+* State
+
+Phase 1 design only.  This document extends the accepted EmacsOS modifier-swipe
+fork.  No production code, test, build, deployment, or phone state changed in
+this phase.
+
+* Lineage
+
+- EmacsOS =docs/2026-09-07-wvkbd-modifier-swipe.org= established the deferred
+  touch and short vertical Ctrl/Alt contract.  This design preserves that
+  contract but replaces horizontal/diagonal cancellation on Latin letter keys
+  with bounded in-process glide recognition.
+- EmacsOS =docs/2026-09-07-wvkbd-repository-integration.org= established the
+  separate wvkbd repository, revision pin, AArch64 build, and side-by-side
+  binary.  Those ownership and recovery boundaries remain.
+
+* Outcome and user contract
+
+On the 320x240 phone, one =--mod-swipe= touch has three useful outcomes:
+
+1. Tap and release an ordinary character key to type it once.
+2. Move a short, predominantly vertical distance and release to emit the
+   existing Ctrl+key or Alt+key chord.
+3. Continue a letter-key trace sufficiently sideways or diagonally to enter
+   glide mode.  Release inserts one locally recognized word through ordinary
+   Wayland key events.
+
+The first vertical qualification is a reversible modifier /candidate/, not an
+irreversible latch.  A short gesture therefore remains exactly a modifier, but
+a deliberate continuing trace can become a word.  Once glide qualifies it is
+irreversible for that touch.  There is one top result and no candidate bar.
+
+Before this feature, a trace from =h= upward and then across =e-l-o= first
+qualifies =C-h= and can never recover; a horizontal first movement cancels.
+After it, =h= plus a short upward release still sends =C-h=.  Continuing across
+=e-l-o= highlights the intersected keys, replaces the =C-= popup with the trace,
+and release types =hello=.  A downward =f= release still sends =M-f=.
+
+* Existing seams
+
+- =main.c:82-83= owns the option and the one active gesture state.
+- =main.c:196-238= admits one touch, identifies its starting key, and defers
+  eligible keys.  =main.c:241-259= resolves a deferred touch on release;
+  =main.c:269-298= routes motion and feedback; =main.c:881-895= balances cancel.
+- =main.c:342-403= arbitrates pointer motion/button/axis input.  The axis path
+  currently changes layers without first cancelling a live touch.
+- =mod-swipe.c:18-41= defines current key eligibility and the adaptive
+  =max(12, floor(0.4 * key_height))= threshold.  =mod-swipe.c:69-98= currently
+  latches the first vertical result and cancels any other threshold crossing.
+- =keyboard.c:278-344= balances key/modifier release, =keyboard.c:346-373=
+  contains the separate =-O= intersection path, and =keyboard.c:510-516=
+  implements transient modifier activation.
+- =keyboard.h:62-87= exposes key geometry, code, parent layout, the layout's
+  keymap name, and whether it is a primary alphabetic layout.
+- =keyboard.c:24-41= changes layouts and uploads a different keymap when
+  necessary.  =keyboard.c:376-500= contains every key-driven layout, compose,
+  and temporary keymap transition.  =main.c:624-674= changes orientation and
+  its selected layout.
+- =main.c:1074-1096= parses =-o=, =-O=, and =--mod-swipe= and rejects the
+  currently incompatible pair before Wayland setup.
+
+* Gesture arbitration
+
+** Admission
+
+The existing deferred-key set remains intact so digit and punctuation modifier
+swipes do not regress.  Glide is a narrower capability of a deferred touch.  A
+starting key is glide-capable only when all of these are true at touch-down:
+
+- compose is off;
+- =keyboard.layout=, the active layout, is primary alphabetic and uses the
+  =latin= keymap;
+- the =Code= key's evdev code appears in the shared explicit 26-entry
+  evdev-to-ASCII reverse lookup; and
+- Ctrl, Alt, Super, and AltGr are not latched.
+
+Shift and CapsLock are allowed and affect output case.  Compose pages,
+non-Latin layouts, digits, punctuation, navigation, Space, Enter, Tab,
+Backspace, and modifier/layout keys do not glide.  They retain the accepted
+tap, modifier, cancellation, or immediate behavior as applicable.  The
+eligibility decision is captured at touch-down; ignored competing touch IDs
+cannot switch layouts under the owner.
+
+The admission helper receives =struct kbd *= plus the touched key and reads
+=keyboard.layout=, never =key.layout=.  A key's =layout= member is a compose or
+layout-switch target, not evidence about the currently displayed keymap.  Tests
+vary active and target layouts independently so this distinction cannot regress.
+
+An admitted glide-capable touch seeds its starting Latin key into both the
+logical trace and the visual intersection list at touch-down.  The trace thus
+starts with one symbol before any motion, and the first movement into another
+letter can satisfy the two-distinct-letter condition.  The starting key keeps
+the normal pressed popup while the gesture is pending; if glide wins, it is
+repainted with all intersections accumulated so far.
+
+** States and exact thresholds
+
+Extend the existing state with =Pending=, =ControlCandidate=,
+=AltCandidate=, =GlideCandidate=, =Glide=, and =Cancelled=:
+
+1. Before either axis reaches the existing adaptive threshold, the state is
+   =Pending=.
+2. At the first threshold crossing, if
+   =abs(dy) >= threshold= and =abs(dy) >= 2 * abs(dx)=, enter
+   =ControlCandidate= for upward movement or =AltCandidate= for downward
+   movement.  Show the existing =C-= or =M-= popup.  This choice remains the
+   release result unless glide later qualifies.
+3. Any other first threshold crossing enters =GlideCandidate= for a
+   glide-capable starting letter.  Immediately clear the normal pressed-key
+   popup; =GlideCandidate= is nonterminal and deliberately shows blank feedback
+   until glide qualifies or release/cancel redraws.  The same movement on
+   another deferred key enters =Cancelled=, preserving today's behavior.
+4. From =Pending= or =GlideCandidate=, enter =Glide= only after all three facts
+   hold: at least two distinct mapped Latin keys, cumulative Manhattan travel
+   of at least =2 * threshold=, and horizontal span of at least =threshold=.
+   =ControlCandidate= and =AltCandidate= use the same conditions and transition
+   directly to =Glide=, never through =GlideCandidate=.  Every entry into
+   =Glide= clears the current normal, =C-=, =M-=, or blank popup before painting.
+   The horizontal-span condition prevents a long vertical row crossing from
+   stealing a Ctrl/Alt gesture.
+5. =Glide= and =Cancelled= are terminal until release/cancel.  A modifier
+   candidate never changes direction merely because the finger doubles back.
+
+All coordinate subtraction, absolute magnitude, path accumulation, and span
+comparison use signed/unsigned 64-bit intermediates.  This preserves the
+current =INT32_MIN=/=INT32_MAX= safety and prevents multiplication overflow.
+
+Release resolution is exact: =Pending= types the starting key;
+=ControlCandidate=/=AltCandidate= emits the existing chord; =Glide= recognizes
+and emits at most one word; =GlideCandidate=, =Cancelled=, an invalid trace, or
+an unrecognized trace emits nothing.  Protocol cancel emits nothing for every
+deferred state and clears all visual state.  Non-deferred touches retain the
+existing balanced press/release path.
+
+** Input cancellation before transitions
+
+=main.c= owns both touch and pointer input.  Replace the touch-only transition
+boundary with one idempotent =cancel_active_input(time)= operation.  It first
+cancels =mod_swipe= and clears its visual state.  It then balances any ordinary
+key held through =cur_press=/=keyboard.last_press= with exactly one
+=kbd_release_key=, sets =cur_press= false and =cur_x=/=cur_y= to -1, and verifies
+=last_press= is nil.  If touch cancellation already released the same ordinary
+key, the second check observes nil and emits nothing.  Event callbacks with a
+Wayland time pass it; orientation/surface callbacks use the most recently
+captured input time.
+
+Call =cancel_active_input= before every pointer-axis action and before any
+layout, keymap, orientation, resize, hide, or surface-lifecycle mutation.  This
+includes output enter/geometry/scale and =flip_landscape=, layer-surface
+configure/close, seat pointer/touch removal, and hide/recreate paths.  Ordinary
+pressed/swipe feedback drawing during a gesture is not a surface-lifecycle
+transition.  No transition may mutate layout geometry, key interpretation, or
+destroy/redraw the underlying surface while either input path still owns a
+pressed key.
+
+Before an owning touch invokes a key action that will switch layout or upload a
+keymap, the same operation runs.  A narrow keyboard query classifies that from
+current compose state and the concrete key type: =Layout=, =NextLayer=,
+=BackLayer=, =Copy=, or a compose-selection key.
+
+For that last case, cancel the gesture first and execute the transition key as
+one ordinary balanced activation; its later touch-up is ignored because it no
+longer owns state.  Do not put a callback in =kbd_switch_layout= or
+=create_and_upload_keymap=: the =Copy= path sets =last_press= before uploading
+its temporary keymap, so a late callback there could synthesize a release
+without a press.  Existing layout/keymap call sites are instead audited into
+one of three states: startup with no input, a completed/cancelled input, or the
+preclassified transition above.  This is a small explicit event-boundary rule,
+not a second gesture framework.  The direct batched word emitter remains
+separate and runs only after its touch has finished, so this correction does not
+route word letters through =last_press=.
+
+* Trace collection and feedback
+
+Touch-down puts the admitted starting Latin key at trace index zero.  Every
+motion callback then updates the path length and spans in O(1), looks up the key
+at the coordinate through =kbd_get_key=, and appends only a transition whose
+evdev code succeeds in the same explicit 26-entry reverse lookup used for
+admission and emission.  The returned ASCII letter is stored.  Consecutive
+repeats are collapsed.  Crossing empty space or an unmapped evdev code neither appends a symbol nor
+changes the last letter.  Touch-up has no coordinate, so the last motion
+intersection is the final letter.
+
+One gesture stores at most 64 letter intersections and accepts at most 2,048
+motion callbacks.  Exceeding either bound marks the gesture invalid and stops
+trace growth and scoring; later callbacks remain O(1) and release emits
+nothing.  State holds fixed arrays only, with no allocation in the touch path.
+
+The starting key popup remains only while =Pending=.  =C-= or =M-= appears on
+modifier qualification.  A transition from =Pending= to nonterminal
+=GlideCandidate= clears that normal popup immediately and leaves feedback blank;
+it must not paint a trace before the takeover thresholds hold.  Every entry
+into =Glide= clears the current popup again, including direct takeover from a
+modifier candidate, then paints the complete visual intersection list,
+including the starting key, using the existing =Swipe= color; later new
+intersections are painted once.  On release or cancel, redraw the layout once.
+Successful insertion is the confirmation.  A rejected trace simply clears its
+highlighted path and inserts nothing, which is immediate and
+non-modal without consuming 320x240 space with a status or candidate row.
+
+* Offline recognizer and dictionary
+
+** Dictionary provenance and generation
+
+Use the frequency-ordered English list bundled by =keredson/wordninja=:
+
+- upstream commit =0421d148cd3d88e4f075aa9c703006f31809e9e5=;
+- source =wordninja/wordninja_words.txt.gz=, 538,593 bytes, SHA-256
+  =5b3c6c418fea7188b3919c47829ff94bc010f8336c74cbb929cc20d0c9d9e901=;
+- MIT license, copyright Derek Anderson 2017; and
+- the first 20,000 frequency-ordered unique lines matching
+  =^[a-z][a-z]+$= with length at most 24.  The normalized text snapshot is
+  158,238 bytes with SHA-256
+  =563636f8dd43cebd00f7253298e1ef0032f830fcbe458dc6115f602fb543456c=.
+
+=tools/generate-glide-dictionary.py= is simple maintainer-only tooling.  Given
+the manually obtained gzip file, it opens it once in binary mode, requires
+=fstat= size 538,593, reads those bytes plus an EOF check into one bounded
+buffer, verifies the pinned compressed SHA-256, and decompresses that same
+buffer with the standard library.  It never validates a pathname and then
+reopens it, so replacement cannot change the bytes between hash and use.  It
+applies the exact filter/order above, requires 20,000 resulting unique entries,
+verifies the normalized SHA-256, and emits the checked-in
+=glide-words-en.h=.  The hash makes separate hostile-file, symlink, compression
+bomb, and fuzz defenses unnecessary for this operator-run tool: any different
+bytes are rejected before decompression.  Normal wvkbd compilation performs no
+dictionary/source download and uses the checked-in header without Python or
+gzip.  This does not claim that EmacsOS's existing container build is fully
+offline: it still obtains its pinned Alpine build dependencies when they are
+not cached.  A checked-in =THIRD_PARTY_LICENSES.md= carries the complete
+wordninja MIT notice and provenance.
+
+Generation groups entries by first and final letter, retaining at most the
+first 512 words in each bucket.  The generated file contains packed NUL-ended
+word bytes, offsets/ranks, and 26x26 bucket ranges.  Generation fails above
+20,000 retained words, 24 bytes per word, 512 candidates per bucket, or 256 KiB
+of generated dictionary payload.  Compile-time assertions pin these same
+bounds.  There is no runtime parsing surface.
+
+** Deterministic scoring
+
+=glide.c=/=glide.h= own a pure function from the bounded collapsed letter
+trace to either a word view or no match.  Candidate words must have the same
+first and last letters as the trace.  Collapse adjacent repeated letters in
+both the trace and candidate signature, so =h-e-l-o= can match =hello=.
+
+Score at most the 512 entries in that first/final bucket with Levenshtein edit
+distance, using two fixed 25-element rows and no heap.  Reject a candidate when
+=3 * distance > max(trace_length, signature_length)=.  Choose the minimum
+tuple =(distance, absolute length difference, frequency rank, lexical bytes)=.
+The tuple and source ordering make the top result deterministic across native
+and AArch64 builds.  Worst-case release work is 512 * 64 * 24 = 786,432 small
+integer cells; output is at most 24 ASCII letters.
+
+** Output, case, separators, and unknown words
+
+The keyboard layer exposes one direct batch operation
+=kbd_emit_ascii_word(kb, word, length, time)=.  It validates the complete
+bounded lowercase word before the first protocol event, maps its characters
+through the shared explicit 26-entry ={ 'a', KEY_A } ... { 'z', KEY_Z }= table
+whose reverse lookup also owns admission and tracing,
+publishes the current modifier mask, and emits one balanced
+=zwp_virtual_keyboard_v1_key= down/up pair per letter.  Linux evdev letter codes
+are noncontiguous, so arithmetic from =KEY_A= or the character value is
+forbidden.  It does not call =kbd_activate_key=, =kbd_press_key=, or
+=kbd_release_key= per letter and does not mutate =last_press=, =last_swipe=,
+popup state, or either surface while the batch is in progress.
+
+One-shot Shift applies to the first pair, is removed from =kb->mods=, and the
+updated modifier mask is published before the second pair.  CapsLock remains
+latched for the complete word.  The admission rule prevents Ctrl, Alt, Super,
+or AltGr from becoming a glide batch.  If =-o= is enabled, write and flush the
+same case-adjusted word once after the balanced Wayland batch.  The caller then
+clears popup/trace state and performs one layout redraw and one final surface
+flip.  It uses no input-method protocol, clipboard, shell, subprocess, or
+application-specific API; =-O= remains separate and incompatible.
+
+No space or punctuation is inserted automatically.  The user taps Space or
+punctuation, keeping editing predictable across Emacs, Firefox, and Waydroid
+and avoiding hidden context or Backspace-retraction state.  Unknown,
+low-confidence, or over-limit traces insert nothing; the user tap-types the
+word.  There is no raw-trace fallback and no personal learning.
+
+* CLI and compatibility
+
+=--mod-swipe= remains the sole opt-in switch and gains the integrated Latin
+glide behavior.  Do not add a second mode or repurpose =-O=.  =-O= continues to
+stream raw intersections for external consumers and remains parser-incompatible
+with =--mod-swipe= before Wayland connection.  =-o= remains compatible.
+Existing signals, layouts, pointer behavior, key repeat outside the deferred
+set, and the absence of hold repeat on deferred characters remain unchanged.
+
+* Consumer build provenance
+
+EmacsOS builds the reviewed revision from =git archive <pinned-commit>=, not by
+copying or mounting the writable checkout.  The tracked =glide-words-en.h= is in
+that archive and =config.h= is created only from archived =config.def.h= inside
+the empty build directory.  Ignored/stale =config.h=, =*.o=, binaries, untracked
+source, and modified working-tree files therefore cannot affect the artifact.
+The archived build still obtains its pinned compiler/development packages when
+the EmacsOS container cache does not contain them; only dictionary/source
+download and runtime network access are absent.
+
+* Resource, privacy, and security boundaries
+
+- Static dictionary payload is at most 256 KiB.  Per-touch state is fixed and
+  below 2 KiB.  Scoring has the exact 512-candidate/64-symbol/24-character
+  bound above.  Idle cost is zero timers, threads, wakeups, or I/O.
+- Motion work stays constant after either limit is exhausted.  Invalid input
+  cannot allocate, index outside the 26x26 buckets, emit non-ASCII data, or
+  cause an unbalanced key event.
+- The runtime never opens a dictionary, socket, history, or user file.  It
+  records no trace, word, usage count, or telemetry.  A process exit discards
+  the current fixed-size gesture.
+- The generated header is trusted checked-in build input reproduced from the
+  pinned hash and exact filter.  The source license and derivation remain
+  reviewable.  The installed personal keyboard stays below the existing 16 MiB
+  artifact cap.
+
+* Numbered implementation plan
+
+1. Extend =mod-swipe.h:9-47= and =mod-swipe.c:36-129= with the reversible
+   candidate states, fixed trace seeded from the admitted touch-down letter,
+   exact thresholds, saturating bounds, and a result that carries a completed
+   trace.  Preserve the general deferred-key predicate and add the narrower
+   Latin-letter admission supplied by the keyboard layer.  That helper inspects
+   =keyboard.layout=, not the touched key's compose/layout target.
+2. Add =glide.h= and =glide.c= for the bounded pure recognizer.  Add the
+   checked-in =glide-words-en.h=, maintainer-only
+   =tools/generate-glide-dictionary.py=, and =THIRD_PARTY_LICENSES.md= with the
+   pinned source size/hash, one-open/one-buffer validation, normalized hash,
+   deterministic filter, bounds, and full MIT notice.  The recognizer owns
+   scoring only; it does not know Wayland, drawing, lifecycle, or CLI wording.
+3. Update =main.c:196-302= and =main.c:881-895= to capture glide eligibility,
+   seed the starting trace/highlight, feed every owning motion plus its
+   =kbd_get_key= intersection into the state, clear the popup on entry to
+   =GlideCandidate= and on every direct entry to =Glide= from pending or either
+   modifier candidate, paint only after that clear, recognize only on
+   release, and clear on every finish/cancel path.  Replace the helper with
+   =cancel_active_input= and update =main.c:342-403=, =main.c:405-432=,
+   =main.c:440-500=, and =main.c:624-750=/=main.c:810-831= so pointer-axis,
+   seat removal, output enter, output geometry/scale, orientation/layout,
+   resize, hide, close, and surface-lifecycle paths balance touch and held
+   pointer input before mutation.  Keep the one-owner rule and audit every
+   =kbd_switch_layout=/=create_and_upload_keymap= call site.
+4. Add narrow helpers in =keyboard.h:62-152= and =keyboard.c:278-373= /
+   =keyboard.c:510-557= to classify transition-producing keys, map primary
+   Latin letters through one bidirectional explicit 26-entry map, draw the trace, and directly batch-emit one bounded ASCII
+   word.  Preserve modifiers and =-o= exactly, prohibit per-letter use of
+   =kbd_activate_key=/=last_press=/surface mutation, and redraw once after the
+   batch.  Keep gesture policy out of =keyboard.c= and do not change the
+   independent =-O= implementation.
+5. Update =main.c:1074-1096= help, =README.md:70-93=, and
+   =wvkbd.1.scd:21-38= to describe integrated glide, explicit separators,
+   no-match behavior, Latin-only scope, and unchanged =-O= incompatibility.
+6. Expand =tests/test-mod-swipe.c:18-130= with exact-boundary cases for tap,
+   short up/down, modifier-then-glide takeover, diagonal/horizontal glide,
+   vertical multi-row non-takeover, doubling back, non-Latin/non-letter
+   cancellation, competing IDs, cancel, signed extremes, 64/2,048 limits, and
+   irreversible glide.  Add =tests/test-glide.c= with a small fixture for
+   repeats, noise, endpoint gates, rejection, deterministic ties, caps, and
+   worst-bucket work.  Exercise the direct batch emitter through a recording
+   virtual-key sink to prove exact down/up balance, first-letter Shift
+   consumption, CapsLock preservation, one =-o= write, untouched
+   =last_press=/=last_swipe=, and one final redraw.  Assert all 26 explicit
+   character-to-=KEY_*= mappings independently in both directions.  Exercise
+   all 26 letters through admission, tracing, and emission; reject intervening
+   nonletters such as =KEY_SEMICOLON=, =KEY_APOSTROPHE=, =KEY_GRAVE=,
+   =KEY_LEFTSHIFT=, and =KEY_BACKSLASH=.  Numeric ranges and arithmetic mappings
+   are forbidden in all three paths.
+   Test active Latin/non-Latin primary layouts against keys whose =key.layout=
+   points to the opposite kind, proving only =keyboard.layout= controls glide
+   admission.  Add transition tests proving
+   =GlideCandidate= clears the normal popup once, remains visually blank, and
+   does not paint the seeded trace until =Glide=.  Assert popup clear before
+   trace paint on entry to =Glide= from =Pending=, =GlideCandidate=,
+   =ControlCandidate=, and =AltCandidate=; modifier candidates enter directly.
+   Add transition tests proving
+   pointer-axis, output enter, output geometry, output scale, orientation,
+   resize, hide, surface close/recreate, layout, compose, and temporary keymap
+   paths cancel the seeded trace before mutation.
+   In exact held-pointer regressions, record a pointer key down without its up,
+   then deliver pointer-axis and surface-transition events: each must emit the
+   matching up before mutation, clear =cur_press=/=last_press=/coordinates, and
+   make the late pointer-up a no-op.  Add =tests/test-glide-dictionary.sh= only
+   for exact compressed size/hash, one opened byte source shared by hash and
+   decompression, exact normalized hash/reproducible output, and
+   wrong-size/wrong-hash rejection;
+   do not treat the maintainer's pinned input as a hostile parser surface.
+7. Add =tests/bench-glide.c= with a fixed 64-symbol trace against the generated
+   bucket having the most retained candidates.  Its deterministic correctness
+   mode pins the result and candidate/cell bounds; its timing mode performs ten
+   warmups and 1,000 individually timed recognitions with
+   =CLOCK_MONOTONIC_RAW=, reporting maximum microseconds and failing when an
+   explicit =--max-us= limit is exceeded.  Update =Makefile:3-61= so =make test=
+   runs both pure C suites, deterministic benchmark correctness, and CLI checks,
+   clean removes their binaries, and =make test-sanitize= runs the pure suites
+   under ASan+UBSan.  Add a libFuzzer entry point for recognizer/trace bytes and
+   a documented bounded 60-second ASan+UBSan invocation; fuzzing is a review
+   check, not a normal build dependency.  Extend =tests/test-cli.sh:9-21= to
+   pin new help, retained pre-Wayland =--mod-swipe -O= rejection, and =-o=
+   compatibility.
+8. Run =make test=, =make test-sanitize=, the bounded fuzz target, =make
+   format=, and the normal dependency-backed build.  Then let EmacsOS build the
+   exact revision and =tests/bench-glide= from its tracked archive in the AArch64
+   musl container.  EmacsOS transfers that benchmark executable to a random
+   user-cache path, executes it unprivileged with
+   =timeout 60 ... --max-us 50000=, and removes it.  Production code is not
+   complete until all 1,000 post-warmup recognitions stay at or below 50 ms and
+   the controlled phone matrix in the EmacsOS state doc passes.
+
+* Tradeoffs and risks
+
+- Sequence edit distance is deliberately smaller than geometric language
+  modeling.  It is deterministic, inspectable, and cheap, but similar traces
+  can prefer a frequent wrong word.  Top-one/no-bar makes that visible as an
+  ordinary Backspace correction rather than adding permanent UI.
+- Explicit Space costs one tap between glided words.  Automatic spacing would
+  need application-context and correction state that ordinary Wayland key
+  output cannot reliably observe.  Simplicity and cross-application behavior
+  win for the first release.
+- A static Wikipedia-frequency vocabulary omits names, slang, and private
+  terms and may contain words Pierre never uses.  Increasing it or learning
+  locally would expand memory, privacy, persistence, and correction policy.
+- The 2x-threshold travel plus one-threshold horizontal span is a design
+  starting point.  It is correctness-safe for short vertical modifiers but
+  usability must be judged on the actual panel before merge.  Change constants
+  only from repeatable live traces, not by adding a settings surface.
+- Cancelling all active input before every layout/keymap/surface transition
+  deliberately abandons an in-progress word or pointer hold rather than
+  interpreting old coordinates under new keys.  The transition key itself
+  still activates once; tests must prevent an unbalanced =Copy= press, duplicate
+  pointer release, or stale touch/pointer up from acting in the new layout.
+
+* Explicit non-goals
+
+- Candidate bar, multiple results, prediction, autocorrect after insertion,
+  next-word prediction, automatic Space, or automatic punctuation.
+- Personalized learning, saved traces, telemetry, cloud/network lookup, or a
+  user-editable runtime dictionary.
+- Non-English or non-Latin glide, compose-page glide, handwriting, or gesture
+  shortcuts beyond the existing Ctrl/Alt contract.
+- Replacing =-O=, an input-method/text protocol, application integrations, or
+  runtime fallback-key/fallback-daemon complexity.
+- Changing pointer input, multi-touch ownership, the stock packaged keyboard,
+  or upstream wvkbd behavior when =--mod-swipe= is absent.
+
+* Phase boundary
+
+This phase ends with this design.  It did not run tests, modify production,
+build for AArch64, touch the phone, deploy, commit, push, or open a pull request.

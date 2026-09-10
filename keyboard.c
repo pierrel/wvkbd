@@ -2,9 +2,12 @@
 #include <linux/input-event-codes.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <ctype.h>
 #include "keyboard.h"
+#include "glide.h"
+#include "letters.h"
 #include "drw.h"
 #include "os-compatibility.h"
 
@@ -608,24 +611,8 @@ kbd_draw_key_label(struct kbd *kb, struct key *k, enum key_draw_type type,
                   KBD_KEY_BORDER, label, scheme->font_description);
     wl_surface_damage(kb->surf->surf, k->x, k->y, k->w, k->h);
 
-    if (type == Press || type == Unpress) {
-        kbd_clear_last_popup(kb);
-
-        kb->last_popup_x = k->x;
-        kb->last_popup_y = kb->h + k->y - k->h;
-        kb->last_popup_w = k->w;
-        kb->last_popup_h = k->h;
-
-        drw_fill_rectangle(kb->popup_surf, scheme->bg, k->x,
-                           kb->last_popup_y, k->w, k->h, scheme->rounding);
-        draw_inset(kb->popup_surf, k->x, kb->last_popup_y, k->w, k->h,
-                   KBD_KEY_BORDER, scheme->high, scheme->rounding);
-        drw_draw_text(kb->popup_surf, scheme->text, k->x, kb->last_popup_y,
-                      k->w, k->h, KBD_KEY_BORDER, label,
-                      scheme->font_description);
-        wl_surface_damage(kb->popup_surf->surf, k->x, kb->last_popup_y, k->w,
-                          k->h);
-    }
+    if (type == Press || type == Unpress)
+        kbd_show_popup_feedback(kb, k, label);
 }
 
 void
@@ -650,12 +637,139 @@ kbd_show_key_feedback(struct kbd *kb, struct key *k, const char *prefix)
 }
 
 void
+kbd_show_popup_feedback(struct kbd *kb, struct key *k, const char *label)
+{
+    struct clr_scheme *scheme = &kb->schemes[k->scheme];
+
+    kbd_clear_last_popup(kb);
+    kb->last_popup_x = k->x;
+    kb->last_popup_y = kb->h + k->y - k->h;
+    kb->last_popup_w = k->w;
+    kb->last_popup_h = k->h;
+    drw_fill_rectangle(kb->popup_surf, scheme->bg, k->x,
+                       kb->last_popup_y, k->w, k->h, scheme->rounding);
+    draw_inset(kb->popup_surf, k->x, kb->last_popup_y, k->w, k->h,
+               KBD_KEY_BORDER, scheme->high, scheme->rounding);
+    drw_draw_text(kb->popup_surf, scheme->text, k->x, kb->last_popup_y,
+                  k->w, k->h, KBD_KEY_BORDER, label,
+                  scheme->font_description);
+    wl_surface_damage(kb->popup_surf->surf, k->x, kb->last_popup_y, k->w,
+                      k->h);
+}
+
+void
 kbd_clear_key_feedback(struct kbd *kb, struct key *k)
 {
     kbd_draw_key(kb, k, Unpress);
     drwsurf_flip(kb->surf);
     kbd_clear_last_popup(kb);
     drwsurf_flip(kb->popup_surf);
+}
+
+bool
+kbd_glide_letter(struct kbd *kb, const struct key *key, char *letter)
+{
+    return kb->compose == 0 && kb->layout && kb->layout->abc &&
+           kb->layout->keymap_name &&
+           strcmp(kb->layout->keymap_name, "latin") == 0 && key &&
+           key->type == Code && !(kb->mods & (Ctrl | Alt | Super | AltGr)) &&
+           glide_letter_from_evdev(key->code, letter);
+}
+
+bool
+kbd_glide_geometry(const struct kbd *kb, struct glide_geometry *geometry)
+{
+    bool seen[26] = {0};
+    struct key *key;
+
+    if (!kb || !kb->layout || !geometry || kb->layout->keyheight == 0) {
+        return false;
+    }
+    *geometry = (struct glide_geometry){0};
+    key = kb->layout->keys;
+    while (key->type != Last) {
+        char letter;
+        uint64_t x;
+        uint64_t y;
+
+        if (key->type != Code || !glide_letter_from_evdev(key->code, &letter)) {
+            key++;
+            continue;
+        }
+        if (seen[letter - 'a'] || key->w == 0 || key->h == 0) {
+            return false;
+        }
+        x = (uint64_t)key->x + key->w / 2;
+        y = (uint64_t)key->y + key->h / 2;
+        if (x > INT32_MAX || y > INT32_MAX) {
+            return false;
+        }
+        geometry->letters[letter - 'a'] =
+            (struct glide_point){.x = (int32_t)x, .y = (int32_t)y};
+        seen[letter - 'a'] = true;
+        key++;
+    }
+    for (size_t i = 0; i < sizeof(seen) / sizeof(seen[0]); i++) {
+        if (!seen[i]) {
+            return false;
+        }
+    }
+    geometry->key_height = kb->layout->keyheight;
+    geometry->complete = true;
+    return true;
+}
+
+bool
+kbd_key_changes_interpretation(const struct kbd *kb, const struct key *key)
+{
+    if (!key) {
+        return false;
+    }
+    if (kb->compose == 1 && key->type != Compose && key->type != Mod) {
+        return true;
+    }
+    return key->type == Layout || key->type == NextLayer ||
+           key->type == BackLayer || key->type == Copy;
+}
+
+bool
+kbd_emit_ascii_word(struct kbd *kb, const char *word, size_t length,
+                    uint32_t time)
+{
+    uint32_t codes[GLIDE_MAX_WORD];
+    char printed[GLIDE_MAX_WORD];
+    bool shifted;
+
+    if (!word || length == 0 || length > sizeof(codes) / sizeof(codes[0])) {
+        return false;
+    }
+    for (size_t i = 0; i < length; i++) {
+        if (!glide_letter_to_evdev(word[i], &codes[i])) {
+            return false;
+        }
+    }
+    shifted = (kb->mods & Shift) != 0;
+    zwp_virtual_keyboard_v1_modifiers(kb->vkbd, kb->mods, 0, 0, 0);
+    for (size_t i = 0; i < length; i++) {
+        zwp_virtual_keyboard_v1_key(kb->vkbd, time, codes[i],
+                                    WL_KEYBOARD_KEY_STATE_PRESSED);
+        zwp_virtual_keyboard_v1_key(kb->vkbd, time, codes[i],
+                                    WL_KEYBOARD_KEY_STATE_RELEASED);
+        if (i == 0 && shifted) {
+            kb->mods &= ~Shift;
+            zwp_virtual_keyboard_v1_modifiers(kb->vkbd, kb->mods, 0, 0, 0);
+        }
+    }
+    if (kb->print) {
+        for (size_t i = 0; i < length; i++) {
+            bool uppercase =
+                (i == 0 && shifted) != ((kb->mods & CapsLock) != 0);
+            printed[i] = uppercase ? toupper((unsigned char)word[i]) : word[i];
+        }
+        fwrite(printed, 1, length, stdout);
+        fflush(stdout);
+    }
+    return true;
 }
 
 void

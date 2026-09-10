@@ -81,11 +81,16 @@ Another output mode, `-O` will let the keyboard output keys which are swiped ove
 
 `--mod-swipe` makes ordinary character keys emit on release: release in place
 types the character once, a short upward swipe emits Ctrl plus the character,
-and a short downward swipe emits Alt plus the character. The key popup changes
-to `C-…` or `M-…` when the gesture has qualified. The threshold is the floor of
-40% of the key height, with a 12-pixel minimum, and vertical movement must be at
-least twice the horizontal movement. A horizontal or diagonal movement reaching
-the threshold cancels the key.
+and a short downward swipe emits Alt plus the character. On a primary Latin
+layout, a continuing horizontal or diagonal path can instead insert one bounded
+local dictionary match. It compares the motion path to the current key geometry,
+so crossing neighboring keys while tracing a word is normal. The popup clears
+until that path qualifies, then the crossed keys are highlighted. Space remains
+a tap. Punctuation does not glide, but retains its tap and short Ctrl/Alt
+modifier-swipe behavior. An unrecognized qualified glide inserts nothing and
+shows `?` in the popup; the next ordinary input clears it. The threshold is the
+floor of 40% of the key height, with a 12-pixel minimum, and vertical movement
+must be at least twice the horizontal movement for the short Ctrl/Alt result.
 
 This mode deliberately trades hold-to-repeat for modifier gestures on character
 keys. It is incompatible with the `-O` swipe-word output mode. Compose, modifier,

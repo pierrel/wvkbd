@@ -17,6 +17,8 @@
 #include <wchar.h>
 
 #include "keyboard.h"
+#include "glide.h"
+#include "letters.h"
 #include "mod-swipe.h"
 #include "config.h"
 
@@ -81,6 +83,7 @@ static int rounding = DEFAULT_ROUNDING;
 static bool hidden = false;
 static bool mod_swipe_enabled = false;
 static struct mod_swipe_state mod_swipe;
+static uint32_t last_input_time;
 
 /* event handler prototypes */
 static void wl_pointer_enter(void *data, struct wl_pointer *wl_pointer,
@@ -136,7 +139,28 @@ static void layer_surface_closed(void *data,
                                  struct zwlr_layer_surface_v1 *surface);
 static void flip_landscape();
 static void show();
-static void cancel_active_touch();
+static void cancel_active_input(uint32_t time);
+
+static void
+draw_glide_trace(void)
+{
+    kbd_draw_layout(&keyboard);
+    kbd_clear_last_popup(&keyboard);
+    for (size_t i = 0; i < mod_swipe.trace_length; i++) {
+        kbd_draw_key(&keyboard, mod_swipe.trace_keys[i], Swipe);
+    }
+    drwsurf_flip(keyboard.surf);
+    drwsurf_flip(keyboard.popup_surf);
+}
+
+static void
+finish_deferred_gesture(void)
+{
+    kbd_draw_layout(&keyboard);
+    kbd_clear_last_popup(&keyboard);
+    drwsurf_flip(keyboard.surf);
+    drwsurf_flip(keyboard.popup_surf);
+}
 
 /* event handlers */
 static const struct wl_pointer_listener pointer_listener = {
@@ -197,7 +221,7 @@ wl_touch_down(void *data, struct wl_touch *wl_touch, uint32_t serial,
               uint32_t time, struct wl_surface *surface, int32_t id,
               wl_fixed_t x, wl_fixed_t y)
 {
-    if(!popup_xdg_surface_configured) {
+    if (!popup_xdg_surface_configured) {
         return;
     }
 
@@ -207,21 +231,30 @@ wl_touch_down(void *data, struct wl_touch *wl_touch, uint32_t serial,
     touch_x = wl_fixed_to_int(x);
     touch_y = wl_fixed_to_int(y);
 
+    last_input_time = time;
     if (mod_swipe_enabled && mod_swipe.active) {
         return;
     }
 
-    kbd_unpress_key(&keyboard, time);
+    cancel_active_input(time);
 
     next_key = touch_x >= 0 && touch_y >= 0
                    ? kbd_get_key(&keyboard, touch_x, touch_y)
                    : NULL;
     if (next_key) {
+        if (kbd_key_changes_interpretation(&keyboard, next_key)) {
+            kbd_activate_key(&keyboard, next_key, time, NoMod);
+            return;
+        }
         if (mod_swipe_enabled) {
+            char start_letter = 0;
             bool deferred = keyboard.compose == 0 && next_key->type == Code &&
                             mod_swipe_keycode_is_character(next_key->code);
+            if (deferred) {
+                kbd_glide_letter(&keyboard, next_key, &start_letter);
+            }
             mod_swipe_begin(&mod_swipe, id, touch_x, touch_y, time, next_key,
-                            next_key->h, deferred);
+                            next_key->h, deferred, start_letter);
             if (deferred) {
                 kbd_show_key_feedback(&keyboard, next_key, NULL);
             } else {
@@ -243,22 +276,44 @@ wl_touch_up(void *data, struct wl_touch *wl_touch, uint32_t serial,
 {
     struct mod_swipe_result result;
 
+    last_input_time = time;
     if (mod_swipe_enabled) {
         if (!mod_swipe_finish(&mod_swipe, id, time, &result)) {
             return;
         }
         if (!result.deferred) {
             kbd_release_key(&keyboard, result.time);
+        } else if ((result.invalid && result.action != ModSwipeGlide) ||
+                   result.action == ModSwipeGlideCandidate ||
+                   result.action == ModSwipeCancelled) {
+            finish_deferred_gesture();
         } else if (result.action == ModSwipePending) {
             kbd_activate_key(&keyboard, result.key, result.time, NoMod);
-        } else if (result.action == ModSwipeControl) {
+        } else if (result.action == ModSwipeControlCandidate) {
             kbd_activate_key(&keyboard, result.key, result.time, Ctrl);
-        } else if (result.action == ModSwipeAlt) {
+        } else if (result.action == ModSwipeAltCandidate) {
             kbd_activate_key(&keyboard, result.key, result.time, Alt);
+        } else if (result.action == ModSwipeGlide) {
+            struct glide_match match;
+            struct glide_geometry geometry;
+            bool emitted = false;
+
+            if (!result.invalid && result.endpoint_mapped &&
+                kbd_glide_geometry(&keyboard, &geometry) &&
+                glide_recognize(result.trace, result.trace_points,
+                                result.trace_length, &geometry, &match)) {
+                emitted = kbd_emit_ascii_word(&keyboard, match.word,
+                                              match.length, result.time);
+            }
+            finish_deferred_gesture();
+            if (!emitted) {
+                kbd_show_popup_feedback(&keyboard, result.key, "?");
+                drwsurf_flip(keyboard.popup_surf);
+            }
         }
         return;
     }
-    if(!popup_xdg_surface_configured) {
+    if (!popup_xdg_surface_configured) {
         return;
     }
 
@@ -269,7 +324,7 @@ void
 wl_touch_motion(void *data, struct wl_touch *wl_touch, uint32_t time,
                 int32_t id, wl_fixed_t x, wl_fixed_t y)
 {
-    if(!popup_xdg_surface_configured) {
+    if (!popup_xdg_surface_configured) {
         return;
     }
 
@@ -278,20 +333,47 @@ wl_touch_motion(void *data, struct wl_touch *wl_touch, uint32_t time,
     touch_x = wl_fixed_to_int(x);
     touch_y = wl_fixed_to_int(y);
 
+    last_input_time = time;
     if (mod_swipe_enabled) {
+        enum mod_swipe_action previous;
+        struct key *intersection;
+        char letter = 0;
         if (!mod_swipe_owns(&mod_swipe, id)) {
             return;
         }
         if (!mod_swipe.deferred) {
-            mod_swipe_update(&mod_swipe, id, touch_x, touch_y, time);
+            mod_swipe_update(&mod_swipe, id, touch_x, touch_y, time, NULL, 0);
             kbd_motion_key(&keyboard, time, (uint32_t)touch_x,
                            (uint32_t)touch_y);
-        } else if (mod_swipe_update(&mod_swipe, id, touch_x, touch_y, time)) {
-            if (mod_swipe.action == ModSwipeControl) {
+        } else {
+            previous = mod_swipe.action;
+            intersection = touch_x >= 0 && touch_y >= 0
+                               ? kbd_get_key(&keyboard, touch_x, touch_y)
+                               : NULL;
+            if (intersection && intersection->type == Code) {
+                glide_letter_from_evdev(intersection->code, &letter);
+            }
+            mod_swipe_update(&mod_swipe, id, touch_x, touch_y, time,
+                             intersection, letter);
+            if (mod_swipe.entered_glide) {
+                draw_glide_trace();
+            } else if (mod_swipe.action == ModSwipeGlide &&
+                       mod_swipe.trace_changed) {
+                kbd_draw_key(&keyboard,
+                             mod_swipe.trace_keys[mod_swipe.trace_length - 1],
+                             Swipe);
+                drwsurf_flip(keyboard.surf);
+            } else if (previous == ModSwipePending &&
+                       mod_swipe.action == ModSwipeGlideCandidate) {
+                kbd_clear_key_feedback(&keyboard, mod_swipe.key);
+            } else if (previous != ModSwipeControlCandidate &&
+                       mod_swipe.action == ModSwipeControlCandidate) {
                 kbd_show_key_feedback(&keyboard, mod_swipe.key, "C-");
-            } else if (mod_swipe.action == ModSwipeAlt) {
+            } else if (previous != ModSwipeAltCandidate &&
+                       mod_swipe.action == ModSwipeAltCandidate) {
                 kbd_show_key_feedback(&keyboard, mod_swipe.key, "M-");
-            } else {
+            } else if (previous != ModSwipeCancelled &&
+                       mod_swipe.action == ModSwipeCancelled) {
                 kbd_clear_key_feedback(&keyboard, mod_swipe.key);
             }
         }
@@ -309,7 +391,7 @@ wl_touch_frame(void *data, struct wl_touch *wl_touch)
 void
 wl_touch_cancel(void *data, struct wl_touch *wl_touch)
 {
-    cancel_active_touch();
+    cancel_active_input(last_input_time);
 }
 
 void
@@ -342,10 +424,11 @@ void
 wl_pointer_motion(void *data, struct wl_pointer *wl_pointer, uint32_t time,
                   wl_fixed_t surface_x, wl_fixed_t surface_y)
 {
-    if(!popup_xdg_surface_configured) {
+    if (!popup_xdg_surface_configured) {
         return;
     }
 
+    last_input_time = time;
     cur_x = wl_fixed_to_int(surface_x);
     cur_y = wl_fixed_to_int(surface_y);
 
@@ -361,32 +444,47 @@ void
 wl_pointer_button(void *data, struct wl_pointer *wl_pointer, uint32_t serial,
                   uint32_t time, uint32_t button, uint32_t state)
 {
-    if(!popup_xdg_surface_configured) {
+    bool pressed = state == WL_POINTER_BUTTON_STATE_PRESSED;
+    int32_t pointer_x = cur_x;
+    int32_t pointer_y = cur_y;
+    struct key *next_key;
+
+    last_input_time = time;
+    if (!popup_xdg_surface_configured) {
         return;
     }
-
-    cur_press = state == WL_POINTER_BUTTON_STATE_PRESSED;
     if (mod_swipe.active) {
         return;
     }
 
-    struct key *next_key;
-
-    if (cur_press) {
-        kbd_unpress_key(&keyboard, time);
-    } else {
+    if (!pressed && !cur_press) {
+        return;
+    }
+    if (!pressed) {
+        cur_press = false;
         kbd_release_key(&keyboard, time);
+        return;
     }
 
-    if (cur_press && cur_x >= 0 && cur_y >= 0) {
-        next_key = kbd_get_key(&keyboard, cur_x, cur_y);
-        if (next_key) {
-            kbd_press_key(&keyboard, next_key, time);
-        } else if (keyboard.compose) {
-            keyboard.compose = 0;
-            kbd_switch_layout(&keyboard, keyboard.prevlayout,
-                              keyboard.last_abc_index);
-        }
+    cancel_active_input(time);
+    next_key = pointer_x >= 0 && pointer_y >= 0
+                   ? kbd_get_key(&keyboard, pointer_x, pointer_y)
+                   : NULL;
+    if (next_key && kbd_key_changes_interpretation(&keyboard, next_key)) {
+        kbd_activate_key(&keyboard, next_key, time, NoMod);
+        return;
+    }
+    if (!next_key && keyboard.compose) {
+        keyboard.compose = 0;
+        kbd_switch_layout(&keyboard, keyboard.prevlayout,
+                          keyboard.last_abc_index);
+        return;
+    }
+    cur_press = true;
+    cur_x = pointer_x;
+    cur_y = pointer_y;
+    if (next_key) {
+        kbd_press_key(&keyboard, next_key, time);
     }
 }
 
@@ -394,10 +492,12 @@ void
 wl_pointer_axis(void *data, struct wl_pointer *wl_pointer, uint32_t time,
                 uint32_t axis, wl_fixed_t value)
 {
-    if(!popup_xdg_surface_configured) {
+    if (!popup_xdg_surface_configured) {
         return;
     }
 
+    last_input_time = time;
+    cancel_active_input(time);
     kbd_next_layer(&keyboard, NULL, (value >= 0));
     drwsurf_flip(keyboard.surf);
 }
@@ -413,6 +513,7 @@ seat_handle_capabilities(void *data, struct wl_seat *wl_seat,
         }
     } else {
         if (pointer != NULL) {
+            cancel_active_input(last_input_time);
             wl_pointer_destroy(pointer);
             pointer = NULL;
         }
@@ -424,7 +525,7 @@ seat_handle_capabilities(void *data, struct wl_seat *wl_seat,
         }
     } else {
         if (touch != NULL) {
-            cancel_active_touch();
+            cancel_active_input(last_input_time);
             wl_touch_destroy(touch);
             touch = NULL;
         }
@@ -440,26 +541,29 @@ void
 wl_surface_enter(void *data, struct wl_surface *wl_surface,
                  struct wl_output *wl_output)
 {
-    struct Output *old_output = current_output;
+    struct Output *new_output = current_output;
+
     for (int i = 0; i < wl_outputs_size; i += 1) {
         if (wl_outputs[i].data == wl_output) {
-            current_output = &wl_outputs[i];
+            new_output = &wl_outputs[i];
             break;
         }
     }
-    if (current_output == old_output) {
+    if (new_output == current_output) {
         return;
     }
 
+    cancel_active_input(last_input_time);
+    current_output = new_output;
     keyboard.preferred_scale = current_output->scale;
     flip_landscape();
 }
 
 void
 wl_surface_leave(void *data, struct wl_surface *wl_surface,
-                 struct wl_output *wl_output) {
+                 struct wl_output *wl_output)
+{
 }
-
 
 static void
 display_handle_geometry(void *data, struct wl_output *wl_output, int x, int y,
@@ -475,6 +579,7 @@ display_handle_geometry(void *data, struct wl_output *wl_output, int x, int y,
         physical_height = tmp;
     }
 
+    cancel_active_input(last_input_time);
     output->w = physical_width;
     output->h = physical_height;
 
@@ -492,6 +597,8 @@ static void
 display_handle_scale(void *data, struct wl_output *wl_output, int32_t scale)
 {
     struct Output *output = data;
+
+    cancel_active_input(last_input_time);
     output->scale = scale;
 
     if (current_output == output) {
@@ -569,11 +676,21 @@ handle_global_remove(void *data, struct wl_registry *registry, uint32_t name)
 {
     for (int i = 0; i < wl_outputs_size; i += 1) {
         if (wl_outputs[i].name == name) {
+            int removed_index = i;
+            int current_index =
+                current_output ? (int)(current_output - wl_outputs) : -1;
+
+            cancel_active_input(last_input_time);
             wl_output_destroy(wl_outputs[i].data);
             for (; i < wl_outputs_size - 1; i += 1) {
                 wl_outputs[i] = wl_outputs[i + 1];
             }
             wl_outputs_size -= 1;
+            if (current_index == removed_index) {
+                current_output = NULL;
+            } else if (current_index > removed_index) {
+                current_output = &wl_outputs[current_index - 1];
+            }
             break;
         }
     }
@@ -613,6 +730,7 @@ wp_fractional_scale_preferred_scale(
     void *data, struct wp_fractional_scale_v1 *wp_fractional_scale_v1,
     uint32_t scale)
 {
+    cancel_active_input(last_input_time);
     keyboard.preferred_fractional_scale = (double)scale / 120;
 }
 
@@ -624,18 +742,15 @@ static const struct wp_fractional_scale_v1_listener
 void
 flip_landscape()
 {
-    bool previous_landscape = keyboard.landscape;
+    bool was_landscape = keyboard.landscape;
+
+    cancel_active_input(last_input_time);
 
     if (current_output) {
         keyboard.landscape = current_output->w > current_output->h;
     } else if (wl_outputs_size) {
         keyboard.landscape = wl_outputs[0].w > wl_outputs[0].h;
     }
-
-    if (previous_landscape != keyboard.landscape) {
-        cancel_active_touch();
-    }
-
     enum layout_id layer;
     if (keyboard.landscape) {
         layer = keyboard.landscape_layers[0];
@@ -651,7 +766,7 @@ flip_landscape()
     keyboard.last_abc_layout = keyboard.layout;
     keyboard.last_abc_index = 0;
 
-    if (layer_surface && previous_landscape != keyboard.landscape) {
+    if (layer_surface && was_landscape != keyboard.landscape) {
         if (popup_xdg_popup) {
             xdg_popup_destroy(popup_xdg_popup);
             popup_xdg_popup = NULL;
@@ -685,7 +800,7 @@ layer_surface_configure(void *data, struct zwlr_layer_surface_v1 *surface,
     if (keyboard.w != w || keyboard.h != h || keyboard.scale != scale ||
         hidden) {
 
-        cancel_active_touch();
+        cancel_active_input(last_input_time);
 
         keyboard.w = w;
         keyboard.h = h;
@@ -747,7 +862,7 @@ layer_surface_configure(void *data, struct zwlr_layer_surface_v1 *surface,
 void
 layer_surface_closed(void *data, struct zwlr_layer_surface_v1 *surface)
 {
-    cancel_active_touch();
+    cancel_active_input(last_input_time);
     zwlr_layer_surface_v1_destroy(surface);
     wl_surface_destroy(draw_surf.surf);
     run_display = false;
@@ -766,7 +881,7 @@ usage(char *argv0)
     fprintf(stderr,
             "  -O          - Print intersected keys to standard output\n");
     fprintf(stderr,
-            "  --mod-swipe - Swipe character keys up for Ctrl, down for Alt\n");
+            "  --mod-swipe - Tap, Ctrl/Alt swipe, or glide Latin letters\n");
     fprintf(stderr, "  -H [int]    - Height in pixels\n");
     fprintf(stderr, "  -L [int]    - Landscape height in pixels\n");
     fprintf(stderr, "  -R [int]    - Rounding radius in pixels\n");
@@ -813,13 +928,13 @@ hide()
         return;
     }
 
-    cancel_active_touch();
+    cancel_active_input(last_input_time);
 
-    if(wfs_draw_surf) {
+    if (wfs_draw_surf) {
         wp_fractional_scale_v1_destroy(wfs_draw_surf);
         wfs_draw_surf = NULL;
     }
-    if(draw_surf_viewport) {
+    if (draw_surf_viewport) {
         wp_viewport_destroy(draw_surf_viewport);
         draw_surf_viewport = NULL;
     }
@@ -878,19 +993,25 @@ toggle_visibility()
 }
 
 static void
-cancel_active_touch()
+cancel_active_input(uint32_t time)
 {
     struct mod_swipe_result result;
 
-    if (!mod_swipe_enabled || !mod_swipe_cancel(&mod_swipe, &result)) {
-        return;
-    }
-    if (result.deferred) {
-        if (result.action != ModSwipeCancelled) {
-            kbd_clear_key_feedback(&keyboard, result.key);
+    cur_press = false;
+    cur_x = cur_y = -1;
+    if (mod_swipe_enabled && mod_swipe_cancel(&mod_swipe, &result)) {
+        if (result.deferred) {
+            finish_deferred_gesture();
+        } else {
+            kbd_release_key(&keyboard, result.time);
         }
-    } else {
-        kbd_release_key(&keyboard, result.time);
+    }
+    if (keyboard.last_press) {
+        kbd_release_key(&keyboard, time);
+    }
+    if (keyboard.last_popup_w && keyboard.last_popup_h) {
+        kbd_clear_last_popup(&keyboard);
+        drwsurf_flip(keyboard.popup_surf);
     }
 }
 
@@ -906,7 +1027,7 @@ set_kbd_colors(uint8_t *bgra, char *hex)
     // bg, fg, text, high, swipe
     int length = strlen(hex);
     if (length == 6 || length == 8) {
-        char subhex[3] = { 0 };
+        char subhex[3] = {0};
         memcpy(subhex, hex, 2);
         bgra[2] = (int)strtol(subhex, NULL, 16);
         memcpy(subhex, hex + 2, 2);
