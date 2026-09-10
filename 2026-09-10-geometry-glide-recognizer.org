@@ -1,0 +1,206 @@
+#+title: Geometry-aware glide recognizer amendment
+#+date: 2026-09-10
+
+* State
+
+Implemented and locally reviewed in the feature lane.  Live deployment and
+acceptance remain pending; no push or pull request has been made.
+
+* Lineage
+
+This amendment follows =2026-09-09-glide-modifier-keyboard-implementation.org=.
+It changes the release-recognition representation that implementation recorded;
+the earlier design and implementation documents remain historical records.
+
+* Observed live failure
+
+The deployed =4d6d695= keyboard reaches glide mode and paints crossed keys
+green, but releases can insert no word.  This is not a virtual-keyboard output
+failure.  Green feedback means only that the modifier-swipe gesture met its
+two-letter, travel, and horizontal-span admission conditions.  At release,
+=main.c= emits only if =glide_recognize= returns a match.
+
+The current recognizer treats each sampled crossed key as a literal spelling
+letter, buckets candidates by the exact first and last sampled letters, then
+uses a strict Levenshtein distance bound.  That representation is invalid for
+a normal continuous phone swipe.  With the deployed Full mobintl geometry at
+720 by 300 pixels, a centre-to-centre =hello= path records the collapsed trace
+=hgftrertyhjklo=, not =helo=.  The current recognizer rejects it.  The same
+reproduction rejects representative crossed traces for =there=, =test=, =area=,
+and =phone=, while the artificial ideal strings =helo= and =area= match.
+
+The existing unit tests only seed the ideal letter strings and stub key lookup.
+They prove release plumbing, not that a physical path through the Full layout
+can be recognized.  The user-visible promise that crossed =h= to =e= to =l= to
+=o= types =hello= is therefore not currently met.
+
+* Preserved user contract
+
+This amendment changes only how a qualified glide is recognized.  It preserves:
+
+1. an in-place ordinary-character tap types exactly once;
+2. a short predominantly upward/downward swipe produces the existing Control
+   or Alt chord;
+3. the current Latin-only admission, compose and modifier exclusions, and
+   Shift/CapsLock output behavior;
+4. green crossed-key feedback after glide qualification; and
+5. one local top result, no candidate bar, no automatic space or punctuation,
+   and no word event for a low-confidence or unknown path.
+
+The batch Wayland word emitter is already the correct output boundary and does
+not change.  The recognizer remains local and bounded.  This is not an attempt
+to add a network service, personal learning, a language model, or SwiftKey's
+full prediction system.
+
+A rejected qualified glide must not be visually indistinguishable from a
+broken input path.  After restoring the ordinary keyboard, it shows a single
+=?= in the existing popup above the original starting key, and flips only that
+popup surface.  It does not recolour or relabel a keyboard key, retain a green
+trace, use a timer, open a modal, or insert text.  The next ordinary key
+feedback clears the popup through the existing popup-clear path; cancellation,
+hide, resize, and layout transitions clear it as they clear other popups.
+
+* Replacement representation and scoring
+
+The live trace must retain geometry rather than make its crossed keys pretend
+to be a spelling.
+
+At touch-down, store the actual touch coordinate with the seeded Latin letter.
+Thereafter, use =glide_letter_from_evdev= on the intersected key.  A newly
+mapped letter appends one coordinate.  A motion that remains in the current
+mapped letter replaces that most recent coordinate with the latest position and
+does not consume capacity.  Thus the coordinate path and the current
+letter/key feedback trace have the same =GLIDE_MAX_TRACE= 64-entry bound while
+retaining the best available position at the end of each crossed key.  The
+start and final sampled letters still provide the existing 26 by 26 dictionary
+bucket gate; their only job is bounded candidate selection, not text
+recognition.  =wl_touch_up= has no coordinate, so recognition uses the latest
+delivered motion coordinate.  A final delivered motion outside a mapped Latin
+key makes the endpoint ineligible rather than reusing an earlier mapped
+position.
+
+At release, derive a validated letter-to-key-centre geometry from the active
+layout by mapping its =Code= keys with =glide_letter_from_evdev=.  It is valid
+only if all 26 Latin letters occur exactly once and the layout has a nonzero key
+height.  The active layout is authoritative; a fixed QWERTY table is not.  A
+layout or compose transition already cancels a live gesture, so the release
+geometry cannot be combined with a trace from another layout.
+
+For each word in the bounded first/last bucket:
+
+1. collapse adjacent duplicate spelling letters, as the current implementation
+   does for words such as =hello=;
+2. map the resulting letters through the validated active-layout centres;
+3. resample both that candidate polyline and the captured gesture polyline to
+   exactly 32 positions at equal Manhattan-arclength intervals; and
+4. sum the 32 pointwise Manhattan distances in their resampled order.
+
+The candidate error is =ceil(sum / 32)= logical pixels.  Resampling retains
+order, so this simpler pointwise score distinguishes a path that visits
+=t-h-e-r-e= from one whose =r= and =e= occur in another order without dynamic
+time warping.  A candidate can emit only when both conditions hold:
+
+1. its error is at most =max(12, floor(9 * key_height / 10))=; and
+2. the next-lowest *geometry* error in the same bucket is at least one logical
+   pixel larger, or no other candidate exists.
+
+The checked-in bucket order makes the scan deterministic, but cannot break an
+equal or sub-pixel geometry tie for emission.  That case is a no-match.  The
+one-pixel margin is deliberately the smallest nonzero integer gap: with the
+real Full fixture it accepts =area= (24 pixels) over =ara= (26), while a real
+=h-j-b-o= path ties =hbo= and =ho= at 25 and is rejected.  The 90-percent
+key-height limit accepts the five intended fixture paths (21--43 pixels for
+50-pixel keys).  The same-endpoint tie is the rejection contract, rather than
+a speculative threshold calibration or learned value.
+
+* Bounds and safety
+
+All input is already bounded before recognition: 64 changed-key positions, a
+24-letter dictionary-word limit, and at most 512 candidates in a bucket.
+Resampling uses fixed 32-point arrays and no allocation.  It resamples the
+gesture once, then each candidate requires bounded scans of at most 24 word
+bytes and 24 source segments, plus exactly 32 output samples and 32 pointwise
+comparisons.  The matcher array payload is one
+24-byte signature, 24 candidate vertices, and two 32-point arrays: at most
+=24 + (24 + 32 + 32) * 8 = 728= bytes, plus scalar counters.  The modifier
+state and its release result each add one 64-point, 512-byte coordinate array.
+
+The implementation must reject null, malformed, empty, over-cap, degenerate,
+or geometry-incomplete inputs before scanning a bucket.  Coordinate differences
+promote the two =int32_t= operands to =int64_t= first.  A Manhattan segment is
+less than =2^33=; the 63-segment gesture total is less than =2^39=, the
+23-segment candidate total is less than =2^38=, and the 32-point score total is
+less than =2^38=.  Direct =uint64_t= addition therefore cannot overflow under
+the enforced array bounds.  A zero path length or out-of-range interpolated
+coordinate is a no-match.  Interpolation uses a wider checked intermediate
+before narrowing to =int32_t=.  Candidate words remain the checked-in
+dictionary; the recognizer opens no files, starts no subprocesses, allocates no
+memory, and does not accept a user-supplied dictionary or command.
+
+Increasing the current raw-string edit threshold is not an acceptable shortcut:
+it still cannot reliably identify a missed endpoint and would let unrelated
+same-endpoint strings compete as spellings.  Dynamic time warping is not needed
+for this bounded representation: the latest-coordinate capture plus ordered,
+equal-arclength pointwise scoring selects every required Full-layout fixture.
+Unordered shape averaging remains insufficient because it loses the direction
+and revisits of a gesture.
+
+* Verification plan
+
+Add a real Full mobintl geometry test at the deployed 720 by 300 dimensions.
+It must initialize the actual layout with =kbd_init_layout=, use production
+=kbd_get_key= lookup, and simulate ordinary centre-to-centre paths at fixed
+motion spacing.  It must append coordinates only on the same changed-key rule
+as production.  The test must show that crossed paths for =hello=, =there=,
+=test=, =area=, and =phone= select their intended word, and must record their
+non-ideal crossed traces so a synthetic =helo= fixture cannot mask a regression.
+It must exercise the resulting acceptance and rejection outcomes under the
+fixed threshold and runner-up rule.  It must also reject the same-endpoint
+=h-j-b-o= tie between =hbo= and =ho=.
+
+Retain and adapt the unit coverage for gesture state/caps, release redraw,
+direct batch emission, all letter mappings, malformed input, confidence
+rejection, deterministic ties, dictionary bounds, benchmark bound, and fuzzing.
+The fuzz target must now exercise bounded coordinate and geometry inputs as
+well as malformed letter data.  Add main-release coverage that a no-match
+restores the keyboard, draws only the =?= popup, and that the next ordinary
+input clears it.  The AArch64 benchmark remains a required release-time check
+over the largest dictionary bucket and the structural input bounds above.
+
+* Numbered implementation plan
+
+1. Extend =glide.h= with fixed coordinate and active-layout geometry types,
+   =GLIDE_PATH_SAMPLES= 32, and a geometry-aware recognizer interface.
+2. Extend =mod-swipe.h= and =mod-swipe.c= so changed letters and their actual
+   coordinates are appended and copied together, and the current letter's
+   coordinate is refreshed in place, without changing state transitions or the
+   64-entry invalidation rule.
+3. Add a narrow =kbd_glide_geometry= helper in =keyboard.h= and =keyboard.c=
+   that maps active =Code= keys through =glide_letter_from_evdev=, validates,
+   and returns the active layout's 26 key centres and key height.  Add a popup
+   helper that draws =?= only in the existing popup rectangle, without drawing
+   or retaining feedback on the keyboard surface.
+4. In the existing =ModSwipeGlide= release branch of =main.c=, obtain that
+   geometry and call the new recognizer.  Invalid geometry remains an ordinary
+   no-match: restore the keyboard, then show the popup-only =?= until ordinary
+   next input or lifecycle cleanup.
+5. Replace raw-letter Levenshtein selection in =glide.c= with bounded,
+   ordered equal-arclength pointwise geometry scoring, the exact error limit,
+   runner-up margin, static dictionary buckets, and wide bounded arithmetic.
+6. Add the Full-layout geometry regression test, update the existing matcher,
+   modifier-state, main-release, fuzz, benchmark, and Makefile coverage, then
+   run native tests, sanitizers, fuzzing, and the AArch64 benchmark before any
+   phone deployment.
+7. Update the current =README.md= and =wvkbd.1.scd= contract from a raw letter
+   trace to a bounded active-layout geometry match.  Do not revise the earlier
+   dated records; this amendment is their forward correction.
+
+* Tradeoffs
+
+The change adds a small fixed geometric scorer and corresponding tests, but
+removes the false assumption that a physical path is a word spelling.  It is
+still intentionally modest: one deterministic local candidate, no correction
+bar, and conservative no-output when confidence is insufficient.  A future
+full predictive keyboard could use a richer language model and candidate UI,
+but that is separate work and is not required to make crossed-key glide typing
+work.

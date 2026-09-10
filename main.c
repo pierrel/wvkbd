@@ -283,7 +283,8 @@ wl_touch_up(void *data, struct wl_touch *wl_touch, uint32_t serial,
         }
         if (!result.deferred) {
             kbd_release_key(&keyboard, result.time);
-        } else if (result.invalid || result.action == ModSwipeGlideCandidate ||
+        } else if ((result.invalid && result.action != ModSwipeGlide) ||
+                   result.action == ModSwipeGlideCandidate ||
                    result.action == ModSwipeCancelled) {
             finish_deferred_gesture();
         } else if (result.action == ModSwipePending) {
@@ -294,11 +295,21 @@ wl_touch_up(void *data, struct wl_touch *wl_touch, uint32_t serial,
             kbd_activate_key(&keyboard, result.key, result.time, Alt);
         } else if (result.action == ModSwipeGlide) {
             struct glide_match match;
-            if (glide_recognize(result.trace, result.trace_length, &match)) {
-                kbd_emit_ascii_word(&keyboard, match.word, match.length,
-                                    result.time);
+            struct glide_geometry geometry;
+            bool emitted = false;
+
+            if (!result.invalid && result.endpoint_mapped &&
+                kbd_glide_geometry(&keyboard, &geometry) &&
+                glide_recognize(result.trace, result.trace_points,
+                                result.trace_length, &geometry, &match)) {
+                emitted = kbd_emit_ascii_word(&keyboard, match.word,
+                                              match.length, result.time);
             }
             finish_deferred_gesture();
+            if (!emitted) {
+                kbd_show_popup_feedback(&keyboard, result.key, "?");
+                drwsurf_flip(keyboard.popup_surf);
+            }
         }
         return;
     }
@@ -997,6 +1008,10 @@ cancel_active_input(uint32_t time)
     }
     if (keyboard.last_press) {
         kbd_release_key(&keyboard, time);
+    }
+    if (keyboard.last_popup_w && keyboard.last_popup_h) {
+        kbd_clear_last_popup(&keyboard);
+        drwsurf_flip(keyboard.popup_surf);
     }
 }
 

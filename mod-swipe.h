@@ -36,10 +36,12 @@ struct mod_swipe_state {
     uint32_t motions;
     uint64_t travel;
     bool glide_capable;
+    bool endpoint_mapped;
     bool invalid;
     bool trace_changed;
     bool entered_glide;
     char trace[GLIDE_MAX_TRACE];
+    struct glide_point trace_points[GLIDE_MAX_TRACE];
     struct key *trace_keys[GLIDE_MAX_TRACE];
     size_t trace_length;
     enum mod_swipe_action action;
@@ -52,7 +54,9 @@ struct mod_swipe_result {
     enum mod_swipe_action action;
     struct key *key;
     char trace[GLIDE_MAX_TRACE];
+    struct glide_point trace_points[GLIDE_MAX_TRACE];
     size_t trace_length;
+    bool endpoint_mapped;
     bool invalid;
 };
 

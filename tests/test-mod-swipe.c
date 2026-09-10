@@ -156,6 +156,9 @@ test_glide_boundaries_and_takeover(void)
     assert(mod_swipe_update(&state, 1, 124, 200, 1, &second_key, 'e'));
     assert(state.action == ModSwipeGlideCandidate);
     assert(state.trace_length == 2);
+    assert(state.trace_points[0].x == 100 && state.trace_points[0].y == 200);
+    assert(state.trace_points[1].x == 124 && state.trace_points[1].y == 200);
+    assert(state.endpoint_mapped);
     assert(mod_swipe_finish(&state, 1, 2, &result));
     assert(result.action == ModSwipeGlideCandidate);
 
@@ -168,6 +171,15 @@ test_glide_boundaries_and_takeover(void)
     assert(result.action == ModSwipeGlide);
     assert(result.trace_length == 2);
     assert(memcmp(result.trace, "he", 2) == 0);
+    assert(result.trace_points[0].x == 100 && result.trace_points[0].y == 176);
+    assert(result.trace_points[1].x == 130 && result.trace_points[1].y == 176);
+    assert(result.endpoint_mapped);
+
+    assert(mod_swipe_begin(&state, 1, 100, 200, 0, &first_key, 60, true, 'h'));
+    mod_swipe_update(&state, 1, 130, 200, 1, NULL, 0);
+    assert(!state.endpoint_mapped);
+    assert(mod_swipe_finish(&state, 1, 2, &result));
+    assert(!result.endpoint_mapped);
 
     assert(mod_swipe_begin(&state, 1, 100, 200, 0, &first_key, 60, true, 'h'));
     assert(mod_swipe_update(&state, 1, 100, 176, 1, &second_key, 'e'));
@@ -225,9 +237,11 @@ test_all_letters_trace(void)
         assert(state.glide_capable);
         assert(state.trace_length == 1);
         assert(state.trace[0] == letter);
+        assert(state.trace_points[0].x == 0 && state.trace_points[0].y == 0);
         assert(mod_swipe_finish(&state, letter, 1, &result));
         assert(result.trace_length == 1);
         assert(result.trace[0] == letter);
+        assert(result.trace_points[0].x == 0 && result.trace_points[0].y == 0);
     }
 }
 

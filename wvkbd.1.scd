@@ -32,10 +32,12 @@ can be patched to add new features.
 *--mod-swipe*
 	Defer ordinary character keys until release. A tap types the character once;
 	a short upward/downward swipe emits Control/Alt plus it. On a primary Latin
-	layout, a
-	continuing horizontal or diagonal letter trace inserts one local dictionary
-	match. Space remains a tap. Punctuation does not glide, but retains its tap
-	and short Control/Alt modifier-swipe behavior; unknown traces insert nothing.
+	layout, a continuing horizontal or diagonal path inserts one local dictionary
+	match by comparing its geometry to the current keys, so crossing neighboring
+	keys is normal. Space remains a tap. Punctuation does not glide, but retains
+	its tap and short Control/Alt modifier-swipe behavior; an unrecognized
+	qualified glide inserts nothing and shows =?= in the popup until the next
+	ordinary input.
 	The short vertical gesture requires the floor of 40% of the key height, with
 	a 12-pixel minimum, and twice as much vertical as horizontal movement. This
 	option disables hold repeat for character keys and cannot be combined with

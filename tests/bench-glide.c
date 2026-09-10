@@ -12,9 +12,19 @@
 
 _Static_assert(GLIDE_LARGEST_BUCKET_COUNT <= 512,
                "benchmark bucket exceeds the candidate bound");
-_Static_assert(GLIDE_LARGEST_BUCKET_COUNT * GLIDE_MAX_TRACE * GLIDE_MAX_WORD <=
-                   512 * 64 * 24,
-               "benchmark exceeds the cell bound");
+
+static struct glide_geometry
+geometry(void)
+{
+    struct glide_geometry result = {.key_height = 10000, .complete = true};
+
+    for (size_t i = 0; i < 26; i++) {
+        result.letters[i] =
+            (struct glide_point){.x = (int32_t)((i * 7919) % 10000),
+                                 .y = (int32_t)((i * 2971) % 10000)};
+    }
+    return result;
+}
 
 static long long
 nanoseconds(const struct timespec *start, const struct timespec *finish)
@@ -39,6 +49,8 @@ main(int argc, char **argv)
     long long maximum = 0;
     long long maximum_ns = 0;
     struct glide_match match;
+    struct glide_geometry current = geometry();
+    struct glide_point points[GLIDE_MAX_TRACE];
 
     if (sizeof(trace) - 1 != GLIDE_MAX_TRACE ||
         trace[0] != GLIDE_LARGEST_BUCKET_FIRST ||
@@ -47,9 +59,13 @@ main(int argc, char **argv)
             GLIDE_LARGEST_BUCKET_COUNT) {
         return 1;
     }
+    for (size_t i = 0; i < sizeof(trace) - 1; i++) {
+        points[i] = current.letters[trace[i] - 'a'];
+    }
 
     if (argc == 1) {
-        return glide_recognize(trace, sizeof(trace) - 1, &match) &&
+        return glide_recognize(trace, points, sizeof(trace) - 1, &current,
+                               &match) &&
                        match.length == sizeof(expected) - 1 &&
                        memcmp(match.word, expected, sizeof(expected) - 1) == 0
                    ? 0
@@ -70,7 +86,8 @@ main(int argc, char **argv)
         return 2;
     }
     for (int i = 0; i < 10; i++) {
-        if (!glide_recognize(trace, sizeof(trace) - 1, &match) ||
+        if (!glide_recognize(trace, points, sizeof(trace) - 1, &current,
+                             &match) ||
             match.length != sizeof(expected) - 1 ||
             memcmp(match.word, expected, sizeof(expected) - 1) != 0)
             return 1;
@@ -78,7 +95,8 @@ main(int argc, char **argv)
     for (int i = 0; i < 1000; i++) {
         struct timespec start, finish;
         clock_gettime(CLOCK_MONOTONIC_RAW, &start);
-        if (!glide_recognize(trace, sizeof(trace) - 1, &match) ||
+        if (!glide_recognize(trace, points, sizeof(trace) - 1, &current,
+                             &match) ||
             match.length != sizeof(expected) - 1 ||
             memcmp(match.word, expected, sizeof(expected) - 1) != 0)
             return 1;

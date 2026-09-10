@@ -22,6 +22,8 @@ static unsigned int popup_clears;
 static unsigned int surface_flips;
 static unsigned int next_layers;
 static unsigned int feedback_clears;
+static unsigned int popup_feedbacks;
+static bool popup_visible;
 static struct key *next_key;
 static bool next_key_changes_interpretation;
 static char draw_events[16];
@@ -113,8 +115,9 @@ kbd_draw_layout(struct kbd *kb)
 void
 kbd_clear_last_popup(struct kbd *kb)
 {
-    (void)kb;
     popup_clears++;
+    popup_visible = false;
+    kb->last_popup_w = kb->last_popup_h = 0;
     draw_events[draw_event_count++] = 'C';
 }
 
@@ -162,6 +165,16 @@ kbd_glide_letter(struct kbd *kb, const struct key *key, char *letter)
     return false;
 }
 bool
+kbd_glide_geometry(const struct kbd *kb, struct glide_geometry *geometry)
+{
+    (void)kb;
+    *geometry = (struct glide_geometry){.key_height = 100, .complete = true};
+    for (size_t i = 0; i < 26; i++) {
+        geometry->letters[i] = (struct glide_point){.x = (int32_t)(i * 100)};
+    }
+    return true;
+}
+bool
 kbd_key_changes_interpretation(const struct kbd *kb, const struct key *key)
 {
     (void)kb;
@@ -171,9 +184,18 @@ kbd_key_changes_interpretation(const struct kbd *kb, const struct key *key)
 void
 kbd_show_key_feedback(struct kbd *kb, struct key *key, const char *prefix)
 {
-    (void)kb;
+    kbd_clear_last_popup(kb);
     (void)key;
     (void)prefix;
+}
+void
+kbd_show_popup_feedback(struct kbd *kb, struct key *key, const char *label)
+{
+    (void)key;
+    assert(strcmp(label, "?") == 0);
+    popup_feedbacks++;
+    popup_visible = true;
+    kb->last_popup_w = kb->last_popup_h = 1;
 }
 void
 kbd_clear_key_feedback(struct kbd *kb, struct key *key)
@@ -244,6 +266,8 @@ reset(void)
     surface_flips = 0;
     next_layers = 0;
     feedback_clears = 0;
+    popup_feedbacks = 0;
+    popup_visible = false;
     next_key = NULL;
     next_key_changes_interpretation = false;
     draw_event_count = 0;
@@ -446,6 +470,16 @@ test_lifecycle_boundaries(void)
     int touch_sentinel;
 
     reset();
+    popup_xdg_surface_configured = true;
+    popup_visible = true;
+    keyboard.last_popup_w = keyboard.last_popup_h = 1;
+    wl_pointer_axis(NULL, NULL, 2, WL_POINTER_AXIS_VERTICAL_SCROLL, 1);
+    assert(!popup_visible);
+    assert(popup_clears == 1);
+    assert(surface_flips == 2);
+    assert(next_layers == 1);
+
+    reset();
     seed_deferred_glide();
     popup_xdg_surface_configured = true;
     wl_pointer_axis(NULL, NULL, 2, WL_POINTER_AXIS_VERTICAL_SCROLL, 1);
@@ -502,14 +536,65 @@ expect_final_redraw(bool invalid, enum mod_swipe_action action,
     assert(mod_swipe_begin(&mod_swipe, 1, 0, 0, 1, &key, 30, true, 'h'));
     mod_swipe.action = action;
     mod_swipe.invalid = invalid;
+    mod_swipe.endpoint_mapped = true;
     mod_swipe.trace_length = strlen(trace);
     memcpy(mod_swipe.trace, trace, mod_swipe.trace_length);
+    for (size_t i = 0; i < mod_swipe.trace_length; i++) {
+        mod_swipe.trace_points[i] =
+            (struct glide_point){.x = (trace[i] - 'a') * 100};
+    }
     wl_touch_up(NULL, NULL, 0, 9, 1);
     assert(layout_draws == 1);
     assert(popup_clears == 1);
-    assert(surface_flips == 2);
+    assert(surface_flips ==
+           (action == ModSwipeGlide && invalid ? 3U : 2U));
     assert(emitted_words == (action == ModSwipeGlide && !invalid));
+    assert(popup_feedbacks ==
+           (action == ModSwipeGlide && invalid ? 1U : 0U));
     assert(activated_keys == 0);
+}
+
+static void
+test_glide_no_match_feedback(void)
+{
+    struct key key = {.type = Code, .code = KEY_H};
+
+    reset();
+    assert(mod_swipe_begin(&mod_swipe, 1, 0, 0, 1, &key, 30, true, 'h'));
+    mod_swipe.action = ModSwipeGlide;
+    memcpy(mod_swipe.trace, "hro", 3);
+    mod_swipe.trace_length = 3;
+    /* A zero-length path cannot map to a word. */
+    wl_touch_up(NULL, NULL, 0, 9, 1);
+    assert(emitted_words == 0);
+    assert(layout_draws == 1);
+    assert(popup_clears == 1);
+    assert(surface_flips == 3);
+    assert(popup_feedbacks == 1);
+    assert(popup_visible);
+
+    kbd_show_key_feedback(&keyboard, &key, NULL);
+    assert(!popup_visible);
+
+    reset();
+    assert(mod_swipe_begin(&mod_swipe, 1, 0, 0, 1, &key, 30, true, 'h'));
+    mod_swipe.action = ModSwipeGlide;
+    memcpy(mod_swipe.trace, "helo", 4);
+    mod_swipe.trace_length = 4;
+    for (size_t i = 0; i < mod_swipe.trace_length; i++) {
+        mod_swipe.trace_points[i] =
+            (struct glide_point){.x = (mod_swipe.trace[i] - 'a') * 100};
+    }
+    mod_swipe.endpoint_mapped = false;
+    wl_touch_up(NULL, NULL, 0, 9, 1);
+    assert(emitted_words == 0);
+    assert(popup_feedbacks == 1);
+    assert(popup_visible);
+
+    cancel_active_input(10);
+    assert(!popup_visible);
+    assert(popup_clears == 2);
+    assert(surface_flips == 4);
 }
 
 static void
@@ -546,6 +631,7 @@ main(void)
     expect_final_redraw(false, ModSwipeGlideCandidate, "helo");
     expect_final_redraw(false, ModSwipeCancelled, "helo");
     test_invalid_release_actions();
+    test_glide_no_match_feedback();
     test_glide_draw_order();
     test_cancel_active_input();
     test_lifecycle_boundaries();

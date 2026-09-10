@@ -17,11 +17,16 @@ reset(struct mod_swipe_state *state)
 }
 
 static void
-append_letter(struct mod_swipe_state *state, struct key *key, char letter)
+append_letter(struct mod_swipe_state *state, struct key *key, char letter,
+              int32_t x, int32_t y)
 {
-    if (letter < 'a' || letter > 'z' || state->invalid ||
-        (state->trace_length &&
-         state->trace[state->trace_length - 1] == letter)) {
+    if (letter < 'a' || letter > 'z' || state->invalid) {
+        return;
+    }
+    if (state->trace_length &&
+        state->trace[state->trace_length - 1] == letter) {
+        state->trace_points[state->trace_length - 1] =
+            (struct glide_point){.x = x, .y = y};
         return;
     }
     if (state->trace_length == GLIDE_MAX_TRACE) {
@@ -29,6 +34,8 @@ append_letter(struct mod_swipe_state *state, struct key *key, char letter)
         return;
     }
     state->trace[state->trace_length++] = letter;
+    state->trace_points[state->trace_length - 1] =
+        (struct glide_point){.x = x, .y = y};
     state->trace_keys[state->trace_length - 1] = key;
     state->trace_changed = true;
 }
@@ -96,8 +103,10 @@ mod_swipe_begin(struct mod_swipe_state *state, int32_t touch_id, int32_t x,
     state->action = ModSwipePending;
     state->key = key;
     state->glide_capable = start_letter >= 'a' && start_letter <= 'z';
+    state->endpoint_mapped = state->glide_capable;
     if (state->glide_capable) {
         state->trace[0] = start_letter;
+        state->trace_points[0] = (struct glide_point){.x = x, .y = y};
         state->trace_keys[0] = key;
         state->trace_length = 1;
     }
@@ -143,7 +152,8 @@ mod_swipe_update(struct mod_swipe_state *state, int32_t touch_id, int32_t x,
         state->min_x = x;
     if (x > state->max_x)
         state->max_x = x;
-    append_letter(state, key, letter);
+    state->endpoint_mapped = key && letter >= 'a' && letter <= 'z';
+    append_letter(state, key, letter, x, y);
     if (state->action == ModSwipeGlide) {
         return state->trace_changed;
     }
@@ -174,7 +184,10 @@ finish(struct mod_swipe_state *state, uint32_t time,
     result->action = state->action;
     result->key = state->key;
     memcpy(result->trace, state->trace, state->trace_length);
+    memcpy(result->trace_points, state->trace_points,
+           state->trace_length * sizeof(state->trace_points[0]));
     result->trace_length = state->trace_length;
+    result->endpoint_mapped = state->endpoint_mapped;
     result->invalid = state->invalid;
     reset(state);
 }
