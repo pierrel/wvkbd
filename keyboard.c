@@ -378,6 +378,9 @@ kbd_motion_key(struct kbd *kb, uint32_t time, uint32_t x, uint32_t y)
 void
 kbd_press_key(struct kbd *kb, struct key *k, uint32_t time)
 {
+    if (kbd_begin_glide_followup(kb, k, time)) {
+        return;
+    }
     if ((kb->compose == 1) && (k->type != Compose) && (k->type != Mod)) {
         if ((k->type == NextLayer) || (k->type == BackLayer) ||
             ((k->type == Code) && (k->code == KEY_SPACE))) {
@@ -784,20 +787,10 @@ kbd_clear_glide_undo(struct kbd *kb)
     kb->glide_undo_count = 0;
 }
 
-bool
-kbd_begin_glide_followup(struct kbd *kb, const struct key *key, uint32_t time)
+static void
+kbd_emit_backspaces(struct kbd *kb, uint8_t count, uint32_t time)
 {
-    uint8_t count = kb->glide_undo_count;
-
-    if (!count || count > GLIDE_MAX_WORD + 1 || !key || key->type != Code ||
-        key->code != KEY_BACKSPACE ||
-        kb->compose || (kb->mods & (Ctrl | Alt | Super | AltGr))) {
-        kbd_clear_glide_undo(kb);
-        return false;
-    }
-
-    kbd_clear_glide_undo(kb);
-    zwp_virtual_keyboard_v1_modifiers(kb->vkbd, kb->mods, 0, 0, 0);
+    zwp_virtual_keyboard_v1_modifiers(kb->vkbd, 0, 0, 0, 0);
     for (uint8_t i = 0; i < count; i++) {
         zwp_virtual_keyboard_v1_key(kb->vkbd, time, KEY_BACKSPACE,
                                     WL_KEYBOARD_KEY_STATE_PRESSED);
@@ -810,7 +803,51 @@ kbd_begin_glide_followup(struct kbd *kb, const struct key *key, uint32_t time)
         }
         fflush(stdout);
     }
-    return true;
+    if (kb->mods) {
+        zwp_virtual_keyboard_v1_modifiers(kb->vkbd, kb->mods, 0, 0, 0);
+    }
+}
+
+static bool
+kbd_is_word_punctuation(const struct key *key)
+{
+    if (key->code_mod != NoMod && key->code_mod != Shift) {
+        return false;
+    }
+    return (key->code_mod == Shift && key->code >= KEY_1 &&
+            key->code <= KEY_0) ||
+           (key->code >= KEY_MINUS && key->code <= KEY_EQUAL) ||
+           (key->code >= KEY_LEFTBRACE && key->code <= KEY_RIGHTBRACE) ||
+           (key->code >= KEY_SEMICOLON && key->code <= KEY_GRAVE) ||
+           key->code == KEY_BACKSLASH ||
+           (key->code >= KEY_COMMA && key->code <= KEY_SLASH);
+}
+
+bool
+kbd_begin_glide_followup(struct kbd *kb, const struct key *key, uint32_t time)
+{
+    uint8_t count = kb->glide_undo_count;
+
+    if (!count || count > GLIDE_MAX_WORD + 1 || !key || key->type != Code ||
+        kb->compose || (kb->mods & (Ctrl | Alt | Super | AltGr))) {
+        kbd_clear_glide_undo(kb);
+        return false;
+    }
+
+    kbd_clear_glide_undo(kb);
+    if (key->code == KEY_BACKSPACE && key->code_mod == NoMod &&
+        !(kb->mods & Shift)) {
+        kbd_emit_backspaces(kb, count, time);
+        return true;
+    }
+    if (key->code == KEY_SPACE && key->code_mod == NoMod &&
+        !(kb->mods & Shift)) {
+        return true;
+    }
+    if (kbd_is_word_punctuation(key)) {
+        kbd_emit_backspaces(kb, 1, time);
+    }
+    return false;
 }
 
 void

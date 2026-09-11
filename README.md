@@ -92,14 +92,15 @@ shows `?` in the popup; the next ordinary input clears it. The threshold is the
 floor of 40% of the key height, with a 12-pixel minimum, and vertical movement
 must be at least twice the horizontal movement for the short Ctrl/Alt result.
 Each recognized word emits one trailing Space. Before another accepted keyboard
-input, a plain Backspace retracts that word and its Space; punctuation after a
-glide therefore yields `word`-Space-punctuation, and an explicit Space yields
-two spaces. External focus, cursor, and hardware edits are not observable.
+input, a plain Backspace retracts that word and its Space. An explicit Space is
+coalesced with the emitted separator, while ordinary punctuation replaces it,
+so both produce normal text. External focus, cursor, and hardware edits are not
+observable.
 
 This mode deliberately trades hold-to-repeat for modifier gestures on character
 keys. It is incompatible with the `-O` swipe-word output mode. Compose, modifier,
-layout, navigation, Space, Enter, Tab, and Backspace keys retain their normal
-behavior.
+layout, navigation, Enter, and Tab keys retain their normal behavior. Space and
+Backspace retain their normal behavior outside the immediate post-glide edit.
 
 ### Compose button
 

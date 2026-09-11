@@ -177,6 +177,18 @@ static void
 test_glide_undo(void)
 {
     struct key backspace = {.type = Code, .code = KEY_BACKSPACE};
+    struct key forced_backspace = {
+        .type = Code,
+        .code = KEY_BACKSPACE,
+        .code_mod = Ctrl,
+    };
+    struct key space = {.type = Code, .code = KEY_SPACE};
+    struct key comma = {.type = Code, .code = KEY_COMMA};
+    struct key shifted_comma = {
+        .type = Code,
+        .code = KEY_COMMA,
+        .code_mod = Shift,
+    };
     struct key other = {.type = Code, .code = KEY_A};
     struct kbd keyboard = {
         .vkbd = (struct zwp_virtual_keyboard_v1 *)(uintptr_t)1,
@@ -184,7 +196,7 @@ test_glide_undo(void)
     };
 
     reset_events();
-    assert(kbd_begin_glide_followup(&keyboard, &backspace, 9));
+    kbd_press_key(&keyboard, &backspace, 9);
     assert(keyboard.glide_undo_count == 0);
     assert(event_count == 9);
     for (size_t i = 1; i < event_count; i += 2) {
@@ -197,6 +209,36 @@ test_glide_undo(void)
     keyboard.mods = Ctrl;
     assert(!kbd_begin_glide_followup(&keyboard, &backspace, 9));
     assert(keyboard.glide_undo_count == 0);
+
+    keyboard.mods = 0;
+    keyboard.glide_undo_count = 4;
+    reset_events();
+    assert(!kbd_begin_glide_followup(&keyboard, &forced_backspace, 9));
+    assert(keyboard.glide_undo_count == 0);
+    assert(event_count == 0);
+
+    keyboard.glide_undo_count = 4;
+    kbd_press_key(&keyboard, &space, 9);
+    assert(keyboard.glide_undo_count == 0);
+    assert(event_count == 0);
+
+    keyboard.glide_undo_count = 4;
+    assert(!kbd_begin_glide_followup(&keyboard, &comma, 9));
+    assert(keyboard.glide_undo_count == 0);
+    assert(event_count == 3);
+    assert(events[0].opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS);
+    expect_pair(1, KEY_BACKSPACE);
+
+    keyboard.mods = Shift;
+    keyboard.glide_undo_count = 4;
+    reset_events();
+    assert(!kbd_begin_glide_followup(&keyboard, &shifted_comma, 9));
+    assert(event_count == 4);
+    assert(events[0].opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS);
+    assert(events[0].first == 0);
+    expect_pair(1, KEY_BACKSPACE);
+    assert(events[3].opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS);
+    assert(events[3].first == Shift);
 }
 
 static void

@@ -241,9 +241,6 @@ wl_touch_down(void *data, struct wl_touch *wl_touch, uint32_t serial,
                    ? kbd_get_key(&keyboard, touch_x, touch_y)
                    : NULL;
     if (next_key) {
-        if (kbd_begin_glide_followup(&keyboard, next_key, time)) {
-            return;
-        }
         if (kbd_key_changes_interpretation(&keyboard, next_key)) {
             kbd_activate_key(&keyboard, next_key, time, NoMod);
             return;
@@ -284,6 +281,10 @@ wl_touch_up(void *data, struct wl_touch *wl_touch, uint32_t serial,
     if (mod_swipe_enabled) {
         if (!mod_swipe_finish(&mod_swipe, id, time, &result)) {
             return;
+        }
+        if (result.deferred &&
+            (result.invalid || result.action != ModSwipePending)) {
+            kbd_clear_glide_undo(&keyboard);
         }
         if (!result.deferred) {
             kbd_release_key(&keyboard, result.time);
@@ -475,9 +476,6 @@ wl_pointer_button(void *data, struct wl_pointer *wl_pointer, uint32_t serial,
     next_key = pointer_x >= 0 && pointer_y >= 0
                    ? kbd_get_key(&keyboard, pointer_x, pointer_y)
                    : NULL;
-    if (next_key && kbd_begin_glide_followup(&keyboard, next_key, time)) {
-        return;
-    }
     if (next_key && kbd_key_changes_interpretation(&keyboard, next_key)) {
         kbd_activate_key(&keyboard, next_key, time, NoMod);
         return;
