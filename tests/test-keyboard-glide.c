@@ -189,6 +189,23 @@ test_glide_undo(void)
         .code = KEY_COMMA,
         .code_mod = Shift,
     };
+    struct key digit = {.type = Code, .code = KEY_1};
+    struct key reset_digit = {
+        .type = Code,
+        .code = KEY_1,
+        .reset_mod = true,
+    };
+    struct key shifted_digit = {
+        .type = Code,
+        .code = KEY_1,
+        .code_mod = Shift,
+    };
+    struct key reset_shifted_digit = {
+        .type = Code,
+        .code = KEY_1,
+        .code_mod = Shift,
+        .reset_mod = true,
+    };
     struct key other = {.type = Code, .code = KEY_A};
     struct kbd keyboard = {
         .vkbd = (struct zwp_virtual_keyboard_v1 *)(uintptr_t)1,
@@ -218,6 +235,12 @@ test_glide_undo(void)
     assert(event_count == 0);
 
     keyboard.glide_undo_count = 4;
+    reset_events();
+    assert(!kbd_begin_glide_followup(&keyboard, &reset_digit, 9));
+    assert(keyboard.glide_undo_count == 0);
+    assert(event_count == 0);
+
+    keyboard.glide_undo_count = 4;
     kbd_press_key(&keyboard, &space, 9);
     assert(keyboard.glide_undo_count == 0);
     assert(event_count == 0);
@@ -229,10 +252,69 @@ test_glide_undo(void)
     assert(events[0].opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS);
     expect_pair(1, KEY_BACKSPACE);
 
+    keyboard.glide_undo_count = 4;
+    reset_events();
+    assert(!kbd_begin_glide_followup(&keyboard, &digit, 9));
+    assert(keyboard.glide_undo_count == 0);
+    assert(event_count == 0);
+
     keyboard.mods = Shift;
     keyboard.glide_undo_count = 4;
     reset_events();
     assert(!kbd_begin_glide_followup(&keyboard, &shifted_comma, 9));
+    assert(event_count == 4);
+    assert(events[0].opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS);
+    assert(events[0].first == 0);
+    expect_pair(1, KEY_BACKSPACE);
+    assert(events[3].opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS);
+    assert(events[3].first == Shift);
+
+    keyboard.glide_undo_count = 4;
+    reset_events();
+    assert(!kbd_begin_glide_followup(&keyboard, &reset_digit, 9));
+    assert(event_count == 4);
+    assert(events[0].opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS);
+    assert(events[0].first == 0);
+    expect_pair(1, KEY_BACKSPACE);
+    assert(events[3].opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS);
+    assert(events[3].first == Shift);
+
+    keyboard.glide_undo_count = 4;
+    reset_events();
+    assert(!kbd_begin_glide_followup(&keyboard, &digit, 9));
+    assert(event_count == 4);
+    assert(events[0].opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS);
+    assert(events[0].first == 0);
+    expect_pair(1, KEY_BACKSPACE);
+    assert(events[3].opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS);
+    assert(events[3].first == Shift);
+
+    keyboard.mods = 0;
+    keyboard.glide_undo_count = 4;
+    reset_events();
+    assert(!kbd_begin_glide_followup(&keyboard, &shifted_digit, 9));
+    assert(event_count == 3);
+    assert(events[0].opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS);
+    expect_pair(1, KEY_BACKSPACE);
+
+    keyboard.mods = 0;
+    keyboard.glide_undo_count = 4;
+    reset_events();
+    assert(!kbd_begin_glide_followup(&keyboard, &reset_shifted_digit, 9));
+    assert(event_count == 3);
+    assert(events[0].opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS);
+    expect_pair(1, KEY_BACKSPACE);
+
+    keyboard.mods = Shift;
+    keyboard.glide_undo_count = 4;
+    reset_events();
+    assert(!kbd_begin_glide_followup(&keyboard, &shifted_digit, 9));
+    assert(keyboard.glide_undo_count == 0);
+    assert(event_count == 0);
+
+    keyboard.glide_undo_count = 4;
+    reset_events();
+    assert(!kbd_begin_glide_followup(&keyboard, &reset_shifted_digit, 9));
     assert(event_count == 4);
     assert(events[0].opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS);
     assert(events[0].first == 0);

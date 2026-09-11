@@ -375,6 +375,15 @@ kbd_motion_key(struct kbd *kb, uint32_t time, uint32_t x, uint32_t y)
     drwsurf_flip(kb->popup_surf);
 }
 
+static uint32_t
+kbd_effective_modifiers(const struct kbd *kb, const struct key *key)
+{
+    if (!key->code_mod) {
+        return kb->mods;
+    }
+    return key->reset_mod ? key->code_mod : kb->mods ^ key->code_mod;
+}
+
 void
 kbd_press_key(struct kbd *kb, struct key *k, uint32_t time)
 {
@@ -403,17 +412,8 @@ kbd_press_key(struct kbd *kb, struct key *k, uint32_t time)
 
     switch (k->type) {
     case Code:
-        if (k->code_mod) {
-            if (k->reset_mod) {
-                zwp_virtual_keyboard_v1_modifiers(kb->vkbd, k->code_mod, 0, 0,
-                                                  0);
-            } else {
-                zwp_virtual_keyboard_v1_modifiers(
-                    kb->vkbd, kb->mods ^ k->code_mod, 0, 0, 0);
-            }
-        } else {
-            zwp_virtual_keyboard_v1_modifiers(kb->vkbd, kb->mods, 0, 0, 0);
-        }
+        zwp_virtual_keyboard_v1_modifiers(
+            kb->vkbd, kbd_effective_modifiers(kb, k), 0, 0, 0);
         kb->last_swipe = kb->last_press = k;
         kbd_draw_key(kb, k, Press);
         if ((k->code == KEY_SPACE) && (kb->mods & Shift)) {
@@ -809,13 +809,15 @@ kbd_emit_backspaces(struct kbd *kb, uint8_t count, uint32_t time)
 }
 
 static bool
-kbd_is_word_punctuation(const struct key *key)
+kbd_is_word_punctuation(const struct kbd *kb, const struct key *key)
 {
+    bool shifted;
+
     if (key->code_mod != NoMod && key->code_mod != Shift) {
         return false;
     }
-    return (key->code_mod == Shift && key->code >= KEY_1 &&
-            key->code <= KEY_0) ||
+    shifted = kbd_effective_modifiers(kb, key) & Shift;
+    return (shifted && key->code >= KEY_1 && key->code <= KEY_0) ||
            (key->code >= KEY_MINUS && key->code <= KEY_EQUAL) ||
            (key->code >= KEY_LEFTBRACE && key->code <= KEY_RIGHTBRACE) ||
            (key->code >= KEY_SEMICOLON && key->code <= KEY_GRAVE) ||
@@ -844,7 +846,7 @@ kbd_begin_glide_followup(struct kbd *kb, const struct key *key, uint32_t time)
         !(kb->mods & Shift)) {
         return true;
     }
-    if (kbd_is_word_punctuation(key)) {
+    if (kbd_is_word_punctuation(kb, key)) {
         kbd_emit_backspaces(kb, 1, time);
     }
     return false;
