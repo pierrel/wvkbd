@@ -3,8 +3,9 @@
 
 * Historical supersessions
 
-This amendment follows =2026-09-10-geometry-glide-recognizer.org=. Recognition
-and geometry remain unchanged; this records the post-recognition editing unit.
+This supersedes that record's =Closure= assumption that a recognized glide ends
+at word emission. Recognition and geometry remain unchanged; this records the
+post-recognition editing unit.
 
 * Contract
 
@@ -14,3 +15,4 @@ that many balanced Backspaces and clears the count first. Any other accepted
 key or gesture clears it. Blank and ignored competing touches do not. No timer,
 persistence, application integration, or external cursor tracking is added.
 Known lifecycle and layout-context resets also disarm it.
+A later recognized glide replaces that state with its own word-space unit.

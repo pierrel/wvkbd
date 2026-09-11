@@ -285,6 +285,7 @@ static void
 reset(void)
 {
     keyboard = (struct kbd){0};
+    keyboard.glide_undo_count = 4;
     mod_swipe = (struct mod_swipe_state){0};
     mod_swipe_enabled = true;
     emitted_words = 0;
@@ -547,6 +548,7 @@ seed_deferred_glide(void)
 static void
 expect_cancelled(unsigned int extra_flips)
 {
+    assert(keyboard.glide_undo_count == 0);
     assert(!mod_swipe.active);
     assert(layout_draws == 1);
     assert(popup_clears == 1);
