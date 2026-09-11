@@ -94,8 +94,9 @@ must be at least twice the horizontal movement for the short Ctrl/Alt result.
 Each recognized word emits one trailing Space. Before another accepted keyboard
 input, a plain Backspace retracts that word and its Space. An explicit Space is
 coalesced with the emitted separator, while ordinary punctuation replaces it,
-so both produce normal text. External focus, cursor, and hardware edits are not
-observable.
+so both produce normal text. Tapping Shift preserves the pending separator
+decision for the following key. External focus, cursor, and hardware edits are
+not observable.
 
 This mode deliberately trades hold-to-repeat for modifier gestures on character
 keys. It is incompatible with the `-O` swipe-word output mode. Compose, modifier,

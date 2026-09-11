@@ -830,8 +830,15 @@ kbd_begin_glide_followup(struct kbd *kb, const struct key *key, uint32_t time)
 {
     uint8_t count = kb->glide_undo_count;
 
-    if (!count || count > GLIDE_MAX_WORD + 1 || !key || key->type != Code ||
-        kb->compose || (kb->mods & (Ctrl | Alt | Super | AltGr))) {
+    if (!count || count > GLIDE_MAX_WORD + 1 || !key || kb->compose ||
+        (kb->mods & (Ctrl | Alt | Super | AltGr))) {
+        kbd_clear_glide_undo(kb);
+        return false;
+    }
+    if (key->type == Mod && key->code == Shift) {
+        return false;
+    }
+    if (key->type != Code) {
         kbd_clear_glide_undo(kb);
         return false;
     }

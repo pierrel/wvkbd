@@ -177,6 +177,7 @@ static void
 test_glide_undo(void)
 {
     struct key backspace = {.type = Code, .code = KEY_BACKSPACE};
+    struct key shift = {.type = Mod, .code = Shift};
     struct key forced_backspace = {
         .type = Code,
         .code = KEY_BACKSPACE,
@@ -252,11 +253,28 @@ test_glide_undo(void)
     assert(events[0].opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS);
     expect_pair(1, KEY_BACKSPACE);
 
+    keyboard.mods = 0;
     keyboard.glide_undo_count = 4;
     reset_events();
     assert(!kbd_begin_glide_followup(&keyboard, &digit, 9));
     assert(keyboard.glide_undo_count == 0);
     assert(event_count == 0);
+
+    keyboard.glide_undo_count = 4;
+    reset_events();
+    assert(!kbd_begin_glide_followup(&keyboard, &shift, 9));
+    assert(keyboard.glide_undo_count == 4);
+    assert(event_count == 0);
+
+    keyboard.mods = Shift;
+    assert(!kbd_begin_glide_followup(&keyboard, &digit, 9));
+    assert(keyboard.glide_undo_count == 0);
+    assert(event_count == 4);
+    assert(events[0].opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS);
+    assert(events[0].first == 0);
+    expect_pair(1, KEY_BACKSPACE);
+    assert(events[3].opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS);
+    assert(events[3].first == Shift);
 
     keyboard.mods = Shift;
     keyboard.glide_undo_count = 4;
