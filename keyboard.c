@@ -760,6 +760,10 @@ kbd_emit_ascii_word(struct kbd *kb, const char *word, size_t length,
             zwp_virtual_keyboard_v1_modifiers(kb->vkbd, kb->mods, 0, 0, 0);
         }
     }
+    zwp_virtual_keyboard_v1_key(kb->vkbd, time, KEY_SPACE,
+                                WL_KEYBOARD_KEY_STATE_PRESSED);
+    zwp_virtual_keyboard_v1_key(kb->vkbd, time, KEY_SPACE,
+                                WL_KEYBOARD_KEY_STATE_RELEASED);
     if (kb->print) {
         for (size_t i = 0; i < length; i++) {
             bool uppercase =
@@ -767,6 +771,43 @@ kbd_emit_ascii_word(struct kbd *kb, const char *word, size_t length,
             printed[i] = uppercase ? toupper((unsigned char)word[i]) : word[i];
         }
         fwrite(printed, 1, length, stdout);
+        fputc(' ', stdout);
+        fflush(stdout);
+    }
+    kb->glide_undo_count = (uint8_t)(length + 1);
+    return true;
+}
+
+void
+kbd_clear_glide_undo(struct kbd *kb)
+{
+    kb->glide_undo_count = 0;
+}
+
+bool
+kbd_begin_glide_followup(struct kbd *kb, const struct key *key, uint32_t time)
+{
+    uint8_t count = kb->glide_undo_count;
+
+    if (!count || count > GLIDE_MAX_WORD + 1 || !key || key->type != Code ||
+        key->code != KEY_BACKSPACE ||
+        kb->compose || (kb->mods & (Ctrl | Alt | Super | AltGr))) {
+        kbd_clear_glide_undo(kb);
+        return false;
+    }
+
+    kbd_clear_glide_undo(kb);
+    zwp_virtual_keyboard_v1_modifiers(kb->vkbd, kb->mods, 0, 0, 0);
+    for (uint8_t i = 0; i < count; i++) {
+        zwp_virtual_keyboard_v1_key(kb->vkbd, time, KEY_BACKSPACE,
+                                    WL_KEYBOARD_KEY_STATE_PRESSED);
+        zwp_virtual_keyboard_v1_key(kb->vkbd, time, KEY_BACKSPACE,
+                                    WL_KEYBOARD_KEY_STATE_RELEASED);
+    }
+    if (kb->print) {
+        for (uint8_t i = 0; i < count; i++) {
+            fputc('\b', stdout);
+        }
         fflush(stdout);
     }
     return true;

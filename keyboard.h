@@ -104,6 +104,7 @@ struct kbd {
 	bool landscape;
 	uint8_t mods;
 	uint8_t compose;
+	uint8_t glide_undo_count;
 	struct key *last_press;
 	struct key *last_swipe;
 	struct layout *prevlayout; //the previous layout, needed to keep track of keymap changes
@@ -150,6 +151,9 @@ bool kbd_key_changes_interpretation(const struct kbd *kb,
                                     const struct key *key);
 bool kbd_emit_ascii_word(struct kbd *kb, const char *word, size_t length,
                          uint32_t time);
+bool kbd_begin_glide_followup(struct kbd *kb, const struct key *key,
+                              uint32_t time);
+void kbd_clear_glide_undo(struct kbd *kb);
 void kbd_draw_layout(struct kbd *kb);
 void kbd_resize(struct kbd *kb, struct layout *layouts, uint8_t layoutcount);
 uint8_t kbd_get_rows(struct layout *l);

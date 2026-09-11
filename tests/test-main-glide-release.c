@@ -15,6 +15,7 @@ static unsigned int key_releases;
 static unsigned int release_calls;
 static unsigned int unpress_calls;
 static unsigned int key_presses;
+static unsigned int glide_retractions;
 static unsigned int layout_switches;
 static bool layout_switch_saw_input_owner;
 static unsigned int layout_draws;
@@ -102,6 +103,27 @@ kbd_emit_ascii_word(struct kbd *kb, const char *word, size_t length,
     (void)time;
     emitted_words++;
     return true;
+}
+
+void
+kbd_clear_glide_undo(struct kbd *kb)
+{
+    kb->glide_undo_count = 0;
+}
+
+bool
+kbd_begin_glide_followup(struct kbd *kb, const struct key *key, uint32_t time)
+{
+    (void)time;
+    if (kb->glide_undo_count && key && key->type == Code &&
+        key->code == KEY_BACKSPACE && kb->compose == 0 &&
+        !(kb->mods & (Ctrl | Alt | Super | AltGr))) {
+        kb->glide_undo_count = 0;
+        glide_retractions++;
+        return true;
+    }
+    kb->glide_undo_count = 0;
+    return false;
 }
 
 void
@@ -259,6 +281,7 @@ reset(void)
     release_calls = 0;
     unpress_calls = 0;
     key_presses = 0;
+    glide_retractions = 0;
     layout_switches = 0;
     layout_switch_saw_input_owner = false;
     layout_draws = 0;
@@ -281,6 +304,23 @@ reset(void)
     keyboard.layouts = layouts;
     keyboard.layers = test_layers;
     keyboard.landscape_layers = test_layers;
+}
+
+static void
+test_glide_undo_input_order(void)
+{
+    struct key backspace = {.type = Code, .code = KEY_BACKSPACE};
+
+    reset();
+    popup_xdg_surface_configured = true;
+    next_key = &backspace;
+    keyboard.glide_undo_count = 4;
+    wl_touch_down(NULL, NULL, 0, 7, NULL, 1, 0, 0);
+    assert(glide_retractions == 1);
+    assert(keyboard.glide_undo_count == 0);
+    assert(!cur_press && keyboard.last_press == NULL);
+    wl_touch_up(NULL, NULL, 0, 8, 1);
+    assert(key_releases == 0);
 }
 
 static void
@@ -647,6 +687,7 @@ main(void)
     expect_final_redraw(false, ModSwipeCancelled, "helo");
     test_invalid_release_actions();
     test_glide_no_match_feedback();
+    test_glide_undo_input_order();
     test_glide_draw_order();
     test_non_code_key_cannot_extend_glide_trace();
     test_cancel_active_input();

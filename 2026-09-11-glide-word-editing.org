@@ -1,0 +1,15 @@
+#+title: Glide word-space editing amendment
+#+date: 2026-09-11
+
+* Historical supersessions
+
+This amendment follows =2026-09-10-geometry-glide-recognizer.org=. Recognition
+and geometry remain unchanged; this records the post-recognition editing unit.
+
+* Contract
+
+A recognized ASCII glide emits its word and one balanced Space and retains only
+the bounded word-length-plus-one count. The next accepted plain Backspace emits
+that many balanced Backspaces and clears the count first. Any other accepted
+key or gesture clears it. Blank and ignored competing touches do not. No timer,
+persistence, application integration, or external cursor tracking is added.
