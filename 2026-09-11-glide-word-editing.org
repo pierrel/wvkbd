@@ -3,16 +3,19 @@
 
 * Historical supersessions
 
-This supersedes that record's =Closure= assumption that a recognized glide ends
-at word emission. Recognition and geometry remain unchanged; this records the
-post-recognition editing unit.
+This supersedes only the no-automatic-Space/retraction parts of
+=2026-09-10-geometry-glide-recognizer.org=, =Preserved user contract= item 5,
+and =2026-09-08-glide-modifier-keyboard.org=, =Output, case, separators, and
+unknown words= and =Explicit non-goals=. Recognition and geometry remain
+unchanged.
 
 * Contract
 
-A recognized ASCII glide emits its word and one balanced Space and retains only
-the bounded word-length-plus-one count. The next accepted plain Backspace emits
-that many balanced Backspaces and clears the count first. Any other accepted
-key or gesture clears it. Blank and ignored competing touches do not. No timer,
-persistence, application integration, or external cursor tracking is added.
-Known lifecycle and layout-context resets also disarm it.
-A later recognized glide replaces that state with its own word-space unit.
+A recognized ASCII glide emits up to 24 letters and one balanced Space and
+retains only the bounded word-length-plus-one count. The next accepted plain
+Backspace is the one-shot retraction: it emits that many balanced Backspaces
+and clears the count first. Any other accepted key or gesture clears it. Blank
+and ignored competing touches do not. No timer, persistence, application
+integration, or external cursor tracking is added. Known lifecycle and
+layout-context resets also disarm it. A later recognized glide replaces that
+state with its own word-space unit.
