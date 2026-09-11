@@ -13,3 +13,4 @@ the bounded word-length-plus-one count. The next accepted plain Backspace emits
 that many balanced Backspaces and clears the count first. Any other accepted
 key or gesture clears it. Blank and ignored competing touches do not. No timer,
 persistence, application integration, or external cursor tracking is added.
+Known lifecycle and layout-context resets also disarm it.

@@ -10,6 +10,7 @@
 
 static unsigned int emitted_words;
 static unsigned int activated_keys;
+static struct key *activated_key;
 static bool activation_saw_input_owner;
 static unsigned int key_releases;
 static unsigned int release_calls;
@@ -26,6 +27,10 @@ static unsigned int feedback_clears;
 static unsigned int popup_feedbacks;
 static bool popup_visible;
 static struct key *next_key;
+static struct key *next_key_after_cancel;
+static struct key *looked_up_key;
+static bool lookup_depends_on_compose;
+static bool cancel_finished;
 static bool next_key_changes_interpretation;
 static char draw_events[16];
 static size_t draw_event_count;
@@ -75,9 +80,14 @@ kbd_release_key(struct kbd *kb, uint32_t time)
 {
     (void)time;
     release_calls++;
+    cancel_finished = true;
     if (kb->last_press) {
         key_releases++;
         kb->last_press = NULL;
+        if (kb->compose >= 2) {
+            kb->compose = 0;
+            kbd_switch_layout(kb, kb->prevlayout, kb->last_abc_index);
+        }
     }
 }
 
@@ -90,6 +100,7 @@ kbd_activate_key(struct kbd *kb, struct key *key, uint32_t time,
     (void)time;
     (void)transient_modifier;
     activated_keys++;
+    activated_key = key;
     activation_saw_input_owner |= cur_press || kb->last_press || mod_swipe.active;
 }
 
@@ -176,7 +187,9 @@ kbd_get_key(struct kbd *kb, uint32_t x, uint32_t y)
     (void)kb;
     (void)x;
     (void)y;
-    return next_key;
+    looked_up_key = lookup_depends_on_compose && cancel_finished ?
+                        next_key_after_cancel : next_key;
+    return looked_up_key;
 }
 bool
 kbd_glide_letter(struct kbd *kb, const struct key *key, char *letter)
@@ -276,6 +289,7 @@ reset(void)
     mod_swipe_enabled = true;
     emitted_words = 0;
     activated_keys = 0;
+    activated_key = NULL;
     activation_saw_input_owner = false;
     key_releases = 0;
     release_calls = 0;
@@ -292,6 +306,10 @@ reset(void)
     popup_feedbacks = 0;
     popup_visible = false;
     next_key = NULL;
+    next_key_after_cancel = NULL;
+    looked_up_key = NULL;
+    lookup_depends_on_compose = false;
+    cancel_finished = false;
     next_key_changes_interpretation = false;
     draw_event_count = 0;
     current_output = NULL;
@@ -312,6 +330,7 @@ test_glide_undo_input_order(void)
     struct key backspace = {.type = Code, .code = KEY_BACKSPACE};
 
     reset();
+    mod_swipe_enabled = false;
     popup_xdg_surface_configured = true;
     next_key = &backspace;
     keyboard.glide_undo_count = 4;
@@ -381,6 +400,39 @@ test_touch_transition_cancels_before_activation(void)
     assert(activated_keys == 1);
     assert(!activation_saw_input_owner);
     assert(!mod_swipe.active);
+}
+
+static void
+test_lookup_follows_cancelled_compose_layout(void)
+{
+    struct key old_key = {0};
+    struct key before = {0};
+    struct key after = {0};
+
+    reset();
+    mod_swipe_enabled = false;
+    popup_xdg_surface_configured = true;
+    lookup_depends_on_compose = true;
+    next_key = &before;
+    next_key_after_cancel = &after;
+    next_key_changes_interpretation = true;
+    keyboard.compose = 2;
+    keyboard.last_press = &old_key;
+    wl_touch_down(NULL, NULL, 0, 7, NULL, 1, 0, 0);
+    assert(looked_up_key == &after);
+
+    reset();
+    mod_swipe_enabled = false;
+    popup_xdg_surface_configured = true;
+    lookup_depends_on_compose = true;
+    next_key = &before;
+    next_key_after_cancel = &after;
+    next_key_changes_interpretation = true;
+    keyboard.compose = 2;
+    keyboard.last_press = &old_key;
+    cur_x = cur_y = 0;
+    wl_pointer_button(NULL, NULL, 0, 7, 0, WL_POINTER_BUTTON_STATE_PRESSED);
+    assert(looked_up_key == &after);
 }
 
 static void
@@ -697,6 +749,7 @@ main(void)
     test_touch_cancels_held_pointer_before_compose_transition();
     test_pointer_down_is_ignored_while_touch_owns_input();
     test_touch_transition_cancels_before_activation();
+    test_lookup_follows_cancelled_compose_layout();
     test_cancelled_feedback_once();
     puts("main glide release tests passed");
     return 0;

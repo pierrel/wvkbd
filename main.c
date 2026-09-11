@@ -236,11 +236,11 @@ wl_touch_down(void *data, struct wl_touch *wl_touch, uint32_t serial,
         return;
     }
 
+    cancel_active_input(time);
     next_key = touch_x >= 0 && touch_y >= 0
                    ? kbd_get_key(&keyboard, touch_x, touch_y)
                    : NULL;
     if (next_key) {
-        cancel_active_input(time);
         if (kbd_begin_glide_followup(&keyboard, next_key, time)) {
             return;
         }
@@ -266,7 +266,6 @@ wl_touch_down(void *data, struct wl_touch *wl_touch, uint32_t serial,
             kbd_press_key(&keyboard, next_key, time);
         }
     } else {
-        cancel_active_input(time);
         if (keyboard.compose) {
             keyboard.compose = 0;
             kbd_switch_layout(&keyboard, keyboard.prevlayout,
@@ -472,10 +471,10 @@ wl_pointer_button(void *data, struct wl_pointer *wl_pointer, uint32_t serial,
         return;
     }
 
+    cancel_active_input(time);
     next_key = pointer_x >= 0 && pointer_y >= 0
                    ? kbd_get_key(&keyboard, pointer_x, pointer_y)
                    : NULL;
-    cancel_active_input(time);
     if (next_key && kbd_begin_glide_followup(&keyboard, next_key, time)) {
         return;
     }
