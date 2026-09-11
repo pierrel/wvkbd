@@ -4,10 +4,11 @@
 * Historical supersessions
 
 This supersedes only the no-automatic-Space/retraction parts of
-=2026-09-10-geometry-glide-recognizer.org=, =Preserved user contract= item 5,
-and =2026-09-08-glide-modifier-keyboard.org=, =Output, case, separators, and
-unknown words= and =Explicit non-goals=. Recognition and geometry remain
-unchanged.
+=2026-09-10-geometry-glide-recognizer.org=, =Preserved user contract= item 5
+and its unchanged-batch-emitter claim, and
+=2026-09-08-glide-modifier-keyboard.org=, =Output, case, separators, and
+unknown words=, =Tradeoffs and risks='s automatic-spacing tradeoff, and
+=Explicit non-goals=. Recognition and geometry remain unchanged.
 
 * Contract
 
