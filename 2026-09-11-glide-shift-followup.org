@@ -1,0 +1,16 @@
+#+title: Glide Shift follow-up amendment
+#+date: 2026-09-11
+
+* Historical supersessions
+
+This supersedes only =2026-09-11-glide-followup-spacing.org=, =Contract='s
+statement that every other accepted input immediately disarms the prior glide
+edit.
+
+* Contract
+
+Tapping the Shift modifier preserves the pending glide separator decision until
+the following accepted key. Shifted numeric punctuation can therefore replace
+the automatic separator. The following key otherwise applies the existing
+coalescing, replacement, or disarming behavior. Other modifiers still disarm
+the pending edit.

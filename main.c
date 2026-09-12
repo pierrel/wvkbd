@@ -237,7 +237,6 @@ wl_touch_down(void *data, struct wl_touch *wl_touch, uint32_t serial,
     }
 
     cancel_active_input(time);
-
     next_key = touch_x >= 0 && touch_y >= 0
                    ? kbd_get_key(&keyboard, touch_x, touch_y)
                    : NULL;
@@ -263,10 +262,12 @@ wl_touch_down(void *data, struct wl_touch *wl_touch, uint32_t serial,
         } else {
             kbd_press_key(&keyboard, next_key, time);
         }
-    } else if (keyboard.compose) {
-        keyboard.compose = 0;
-        kbd_switch_layout(&keyboard, keyboard.prevlayout,
-                          keyboard.last_abc_index);
+    } else {
+        if (keyboard.compose) {
+            keyboard.compose = 0;
+            kbd_switch_layout(&keyboard, keyboard.prevlayout,
+                              keyboard.last_abc_index);
+        }
     }
 }
 
@@ -280,6 +281,10 @@ wl_touch_up(void *data, struct wl_touch *wl_touch, uint32_t serial,
     if (mod_swipe_enabled) {
         if (!mod_swipe_finish(&mod_swipe, id, time, &result)) {
             return;
+        }
+        if (result.deferred &&
+            (result.invalid || result.action != ModSwipePending)) {
+            kbd_clear_glide_undo(&keyboard);
         }
         if (!result.deferred) {
             kbd_release_key(&keyboard, result.time);
@@ -391,6 +396,7 @@ wl_touch_frame(void *data, struct wl_touch *wl_touch)
 void
 wl_touch_cancel(void *data, struct wl_touch *wl_touch)
 {
+    kbd_clear_glide_undo(&keyboard);
     cancel_active_input(last_input_time);
 }
 
@@ -497,6 +503,7 @@ wl_pointer_axis(void *data, struct wl_pointer *wl_pointer, uint32_t time,
     }
 
     last_input_time = time;
+    kbd_clear_glide_undo(&keyboard);
     cancel_active_input(time);
     kbd_next_layer(&keyboard, NULL, (value >= 0));
     drwsurf_flip(keyboard.surf);
@@ -513,6 +520,7 @@ seat_handle_capabilities(void *data, struct wl_seat *wl_seat,
         }
     } else {
         if (pointer != NULL) {
+            kbd_clear_glide_undo(&keyboard);
             cancel_active_input(last_input_time);
             wl_pointer_destroy(pointer);
             pointer = NULL;
@@ -525,6 +533,7 @@ seat_handle_capabilities(void *data, struct wl_seat *wl_seat,
         }
     } else {
         if (touch != NULL) {
+            kbd_clear_glide_undo(&keyboard);
             cancel_active_input(last_input_time);
             wl_touch_destroy(touch);
             touch = NULL;
@@ -553,6 +562,7 @@ wl_surface_enter(void *data, struct wl_surface *wl_surface,
         return;
     }
 
+    kbd_clear_glide_undo(&keyboard);
     cancel_active_input(last_input_time);
     current_output = new_output;
     keyboard.preferred_scale = current_output->scale;
@@ -579,6 +589,7 @@ display_handle_geometry(void *data, struct wl_output *wl_output, int x, int y,
         physical_height = tmp;
     }
 
+    kbd_clear_glide_undo(&keyboard);
     cancel_active_input(last_input_time);
     output->w = physical_width;
     output->h = physical_height;
@@ -598,6 +609,7 @@ display_handle_scale(void *data, struct wl_output *wl_output, int32_t scale)
 {
     struct Output *output = data;
 
+    kbd_clear_glide_undo(&keyboard);
     cancel_active_input(last_input_time);
     output->scale = scale;
 
@@ -680,6 +692,7 @@ handle_global_remove(void *data, struct wl_registry *registry, uint32_t name)
             int current_index =
                 current_output ? (int)(current_output - wl_outputs) : -1;
 
+            kbd_clear_glide_undo(&keyboard);
             cancel_active_input(last_input_time);
             wl_output_destroy(wl_outputs[i].data);
             for (; i < wl_outputs_size - 1; i += 1) {
@@ -730,6 +743,7 @@ wp_fractional_scale_preferred_scale(
     void *data, struct wp_fractional_scale_v1 *wp_fractional_scale_v1,
     uint32_t scale)
 {
+    kbd_clear_glide_undo(&keyboard);
     cancel_active_input(last_input_time);
     keyboard.preferred_fractional_scale = (double)scale / 120;
 }
@@ -744,6 +758,7 @@ flip_landscape()
 {
     bool was_landscape = keyboard.landscape;
 
+    kbd_clear_glide_undo(&keyboard);
     cancel_active_input(last_input_time);
 
     if (current_output) {
@@ -800,6 +815,7 @@ layer_surface_configure(void *data, struct zwlr_layer_surface_v1 *surface,
     if (keyboard.w != w || keyboard.h != h || keyboard.scale != scale ||
         hidden) {
 
+        kbd_clear_glide_undo(&keyboard);
         cancel_active_input(last_input_time);
 
         keyboard.w = w;
@@ -862,6 +878,7 @@ layer_surface_configure(void *data, struct zwlr_layer_surface_v1 *surface,
 void
 layer_surface_closed(void *data, struct zwlr_layer_surface_v1 *surface)
 {
+    kbd_clear_glide_undo(&keyboard);
     cancel_active_input(last_input_time);
     zwlr_layer_surface_v1_destroy(surface);
     wl_surface_destroy(draw_surf.surf);
@@ -928,6 +945,7 @@ hide()
         return;
     }
 
+    kbd_clear_glide_undo(&keyboard);
     cancel_active_input(last_input_time);
 
     if (wfs_draw_surf) {

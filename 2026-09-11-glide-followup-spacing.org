@@ -1,0 +1,17 @@
+#+title: Glide follow-up spacing amendment
+#+date: 2026-09-11
+
+* Historical supersessions
+
+This supersedes only =2026-09-11-glide-word-editing.org=, =Contract='s handling
+of accepted input other than plain Backspace. Word emission, one-shot
+retraction, lifecycle resets, and the source-local boundary remain unchanged.
+
+* Contract
+
+An immediate explicit Space after a recognized glide keeps the emitted
+separator without adding another. Immediate ordinary punctuation removes the
+separator only when that punctuation tap is accepted, then follows its normal
+key path. A modifier swipe, rejected gesture, or other accepted input instead
+disarms the prior glide edit without changing its text. Blank and ignored
+competing touches do not.

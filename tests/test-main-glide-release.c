@@ -10,11 +10,16 @@
 
 static unsigned int emitted_words;
 static unsigned int activated_keys;
+static struct key *activated_key;
 static bool activation_saw_input_owner;
 static unsigned int key_releases;
 static unsigned int release_calls;
 static unsigned int unpress_calls;
 static unsigned int key_presses;
+static unsigned int followup_calls;
+static bool followup_consumed;
+static const struct key *followup_key;
+static uint8_t followup_mods;
 static unsigned int layout_switches;
 static bool layout_switch_saw_input_owner;
 static unsigned int layout_draws;
@@ -25,6 +30,10 @@ static unsigned int feedback_clears;
 static unsigned int popup_feedbacks;
 static bool popup_visible;
 static struct key *next_key;
+static struct key *next_key_after_cancel;
+static struct key *looked_up_key;
+static bool lookup_depends_on_compose;
+static bool cancel_finished;
 static bool next_key_changes_interpretation;
 static char draw_events[16];
 static size_t draw_event_count;
@@ -74,9 +83,14 @@ kbd_release_key(struct kbd *kb, uint32_t time)
 {
     (void)time;
     release_calls++;
+    cancel_finished = true;
     if (kb->last_press) {
         key_releases++;
         kb->last_press = NULL;
+        if (kb->compose >= 2) {
+            kb->compose = 0;
+            kbd_switch_layout(kb, kb->prevlayout, kb->last_abc_index);
+        }
     }
 }
 
@@ -84,24 +98,43 @@ void
 kbd_activate_key(struct kbd *kb, struct key *key, uint32_t time,
                  uint8_t transient_modifier)
 {
-    (void)kb;
-    (void)key;
-    (void)time;
-    (void)transient_modifier;
+    uint8_t saved_mods = kb->mods;
+
+    kb->mods |= transient_modifier;
     activated_keys++;
+    activated_key = key;
     activation_saw_input_owner |= cur_press || kb->last_press || mod_swipe.active;
+    kbd_press_key(kb, key, time);
+    kbd_release_key(kb, time);
+    kb->mods = saved_mods;
 }
 
 bool
 kbd_emit_ascii_word(struct kbd *kb, const char *word, size_t length,
                     uint32_t time)
 {
-    (void)kb;
     (void)word;
-    (void)length;
     (void)time;
     emitted_words++;
+    kb->glide_undo_count = (uint8_t)(length + 1);
     return true;
+}
+
+void
+kbd_clear_glide_undo(struct kbd *kb)
+{
+    kb->glide_undo_count = 0;
+}
+
+bool
+kbd_begin_glide_followup(struct kbd *kb, const struct key *key, uint32_t time)
+{
+    (void)time;
+    followup_calls++;
+    followup_key = key;
+    followup_mods = kb->mods;
+    kb->glide_undo_count = 0;
+    return followup_consumed;
 }
 
 void
@@ -154,7 +187,9 @@ kbd_get_key(struct kbd *kb, uint32_t x, uint32_t y)
     (void)kb;
     (void)x;
     (void)y;
-    return next_key;
+    looked_up_key = lookup_depends_on_compose && cancel_finished ?
+                        next_key_after_cancel : next_key;
+    return looked_up_key;
 }
 bool
 kbd_glide_letter(struct kbd *kb, const struct key *key, char *letter)
@@ -207,9 +242,9 @@ kbd_clear_key_feedback(struct kbd *kb, struct key *key)
 void
 kbd_press_key(struct kbd *kb, struct key *key, uint32_t time)
 {
-    (void)kb;
-    (void)key;
-    (void)time;
+    if (kbd_begin_glide_followup(kb, key, time)) {
+        return;
+    }
     key_presses++;
 }
 void
@@ -250,15 +285,21 @@ static void
 reset(void)
 {
     keyboard = (struct kbd){0};
+    keyboard.glide_undo_count = 4;
     mod_swipe = (struct mod_swipe_state){0};
     mod_swipe_enabled = true;
     emitted_words = 0;
     activated_keys = 0;
+    activated_key = NULL;
     activation_saw_input_owner = false;
     key_releases = 0;
     release_calls = 0;
     unpress_calls = 0;
     key_presses = 0;
+    followup_calls = 0;
+    followup_consumed = false;
+    followup_key = NULL;
+    followup_mods = 0;
     layout_switches = 0;
     layout_switch_saw_input_owner = false;
     layout_draws = 0;
@@ -269,6 +310,10 @@ reset(void)
     popup_feedbacks = 0;
     popup_visible = false;
     next_key = NULL;
+    next_key_after_cancel = NULL;
+    looked_up_key = NULL;
+    lookup_depends_on_compose = false;
+    cancel_finished = false;
     next_key_changes_interpretation = false;
     draw_event_count = 0;
     current_output = NULL;
@@ -281,6 +326,65 @@ reset(void)
     keyboard.layouts = layouts;
     keyboard.layers = test_layers;
     keyboard.landscape_layers = test_layers;
+}
+
+static void
+test_glide_undo_input_order(void)
+{
+    struct key backspace = {.type = Code, .code = KEY_BACKSPACE};
+
+    reset();
+    mod_swipe_enabled = false;
+    popup_xdg_surface_configured = true;
+    next_key = &backspace;
+    followup_consumed = true;
+    wl_touch_down(NULL, NULL, 0, 7, NULL, 1, 0, 0);
+    assert(followup_calls == 1);
+    assert(followup_key == &backspace);
+    assert(keyboard.glide_undo_count == 0);
+    assert(!cur_press && keyboard.last_press == NULL);
+    wl_touch_up(NULL, NULL, 0, 8, 1);
+    assert(key_releases == 0);
+}
+
+static void
+test_deferred_punctuation_replaces_separator_on_release(void)
+{
+    struct key comma = {.type = Code, .code = KEY_COMMA};
+
+    reset();
+    popup_xdg_surface_configured = true;
+    next_key = &comma;
+    wl_touch_down(NULL, NULL, 0, 7, NULL, 1, 0, 0);
+    assert(mod_swipe.active);
+    assert(keyboard.glide_undo_count == 4);
+    assert(followup_calls == 0);
+    wl_touch_up(NULL, NULL, 0, 8, 1);
+    assert(followup_calls == 1);
+    assert(followup_key == &comma);
+    assert(followup_mods == 0);
+    assert(keyboard.glide_undo_count == 0);
+    assert(activated_keys == 1);
+    assert(key_presses == 1);
+}
+
+static void
+test_modified_punctuation_preserves_separator(void)
+{
+    struct key comma = {.type = Code, .code = KEY_COMMA};
+
+    reset();
+    popup_xdg_surface_configured = true;
+    next_key = &comma;
+    wl_touch_down(NULL, NULL, 0, 7, NULL, 1, 0, 0);
+    mod_swipe.action = ModSwipeControlCandidate;
+    wl_touch_up(NULL, NULL, 0, 8, 1);
+    assert(followup_calls == 1);
+    assert(followup_key == &comma);
+    assert(followup_mods == Ctrl);
+    assert(keyboard.glide_undo_count == 0);
+    assert(activated_keys == 1);
+    assert(key_presses == 1);
 }
 
 static void
@@ -341,6 +445,39 @@ test_touch_transition_cancels_before_activation(void)
     assert(activated_keys == 1);
     assert(!activation_saw_input_owner);
     assert(!mod_swipe.active);
+}
+
+static void
+test_lookup_follows_cancelled_compose_layout(void)
+{
+    struct key old_key = {0};
+    struct key before = {0};
+    struct key after = {0};
+
+    reset();
+    mod_swipe_enabled = false;
+    popup_xdg_surface_configured = true;
+    lookup_depends_on_compose = true;
+    next_key = &before;
+    next_key_after_cancel = &after;
+    next_key_changes_interpretation = true;
+    keyboard.compose = 2;
+    keyboard.last_press = &old_key;
+    wl_touch_down(NULL, NULL, 0, 7, NULL, 1, 0, 0);
+    assert(looked_up_key == &after);
+
+    reset();
+    mod_swipe_enabled = false;
+    popup_xdg_surface_configured = true;
+    lookup_depends_on_compose = true;
+    next_key = &before;
+    next_key_after_cancel = &after;
+    next_key_changes_interpretation = true;
+    keyboard.compose = 2;
+    keyboard.last_press = &old_key;
+    cur_x = cur_y = 0;
+    wl_pointer_button(NULL, NULL, 0, 7, 0, WL_POINTER_BUTTON_STATE_PRESSED);
+    assert(looked_up_key == &after);
 }
 
 static void
@@ -455,6 +592,7 @@ seed_deferred_glide(void)
 static void
 expect_cancelled(unsigned int extra_flips)
 {
+    assert(keyboard.glide_undo_count == 0);
     assert(!mod_swipe.active);
     assert(layout_draws == 1);
     assert(popup_clears == 1);
@@ -552,6 +690,11 @@ expect_final_redraw(bool invalid, enum mod_swipe_action action,
     assert(popup_feedbacks ==
            (action == ModSwipeGlide && invalid ? 1U : 0U));
     assert(activated_keys == 0);
+    if (action == ModSwipeGlide && !invalid) {
+        assert(keyboard.glide_undo_count > 1);
+    } else {
+        assert(keyboard.glide_undo_count == 0);
+    }
 }
 
 static void
@@ -647,6 +790,9 @@ main(void)
     expect_final_redraw(false, ModSwipeCancelled, "helo");
     test_invalid_release_actions();
     test_glide_no_match_feedback();
+    test_glide_undo_input_order();
+    test_deferred_punctuation_replaces_separator_on_release();
+    test_modified_punctuation_preserves_separator();
     test_glide_draw_order();
     test_non_code_key_cannot_extend_glide_trace();
     test_cancel_active_input();
@@ -656,6 +802,7 @@ main(void)
     test_touch_cancels_held_pointer_before_compose_transition();
     test_pointer_down_is_ignored_while_touch_owns_input();
     test_touch_transition_cancels_before_activation();
+    test_lookup_follows_cancelled_compose_layout();
     test_cancelled_feedback_once();
     puts("main glide release tests passed");
     return 0;

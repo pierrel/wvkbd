@@ -38,6 +38,10 @@ can be patched to add new features.
 	its tap and short Control/Alt modifier-swipe behavior; an unrecognized
 	qualified glide inserts nothing and shows =?= in the popup until the next
 	ordinary input.
+	A recognized word emits one trailing Space. Before another accepted keyboard
+	input, plain Backspace retracts that word and its Space. An explicit Space is
+	coalesced with the emitted separator, while ordinary punctuation replaces it.
+	External cursor or hardware edits are not observable.
 	The short vertical gesture requires the floor of 40% of the key height, with
 	a 12-pixel minimum, and twice as much vertical as horizontal movement. This
 	option disables hold repeat for character keys and cannot be combined with
