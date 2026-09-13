@@ -306,6 +306,8 @@ wl_touch_up(void *data, struct wl_touch *wl_touch, uint32_t serial,
             kbd_activate_key(&keyboard, result.key, result.time, Ctrl);
         } else if (result.action == ModSwipeAltCandidate) {
             kbd_activate_key(&keyboard, result.key, result.time, Alt);
+        } else if (result.action == ModSwipeControlAltCandidate) {
+            kbd_activate_key(&keyboard, result.key, result.time, Ctrl | Alt);
         } else if (result.action == ModSwipeGlide) {
             struct glide_result matches;
             struct glide_geometry geometry;
@@ -389,6 +391,9 @@ wl_touch_motion(void *data, struct wl_touch *wl_touch, uint32_t time,
             } else if (previous != ModSwipeAltCandidate &&
                        mod_swipe.action == ModSwipeAltCandidate) {
                 kbd_show_key_feedback(&keyboard, mod_swipe.key, "M-");
+            } else if (previous != ModSwipeControlAltCandidate &&
+                       mod_swipe.action == ModSwipeControlAltCandidate) {
+                kbd_show_key_feedback(&keyboard, mod_swipe.key, "C-M-");
             } else if (previous != ModSwipeCancelled &&
                        mod_swipe.action == ModSwipeCancelled) {
                 kbd_clear_key_feedback(&keyboard, mod_swipe.key);
@@ -933,7 +938,8 @@ usage(char *argv0)
     fprintf(stderr,
             "  -O          - Print intersected keys to standard output\n");
     fprintf(stderr,
-            "  --mod-swipe - Tap, Ctrl/Alt swipe, or glide Latin letters\n");
+            "  --mod-swipe - Tap, Ctrl/Alt/Ctrl+Alt swipes, or glide Latin "
+            "letters\n");
     fprintf(stderr, "  -H [int]    - Height in pixels\n");
     fprintf(stderr, "  -L [int]    - Landscape height in pixels\n");
     fprintf(stderr, "  -R [int]    - Rounding radius in pixels\n");

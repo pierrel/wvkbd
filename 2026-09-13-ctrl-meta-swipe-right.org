@@ -1,0 +1,112 @@
+#+title: Control-Meta right swipe
+#+date: 2026-09-13
+
+* State
+
+This design is accepted on wvkbd =emacsos= commit =04bc831=.  It adds one
+rightward modifier gesture without changing the existing adaptive threshold,
+glide recognizer, or balanced transient-key activation path.
+
+The earlier reviewed v2 design was never materialized as a dated file.  Its
+durable evidence accepted a first-crossing 2:1 rightward candidate, existing
+glide takeover gates, =Ctrl | Alt= activation, exact =C-M-= feedback, and
+classifier, release, documentation, and live verification coverage.  This file
+is the first repository design record for that decision; it is not a backdated
+replacement.
+
+* Lineage
+
+This extends =2026-09-12-swipe-suggestions.org=.  Ranked recognition,
+keyboard-owned candidate display and replacement, and candidate input ownership
+remain unchanged.  After =c67809ce= (=swipe-suggestions=) lands, this branch is
+rebased onto the updated =emacsos= target and retains its outer candidate-event
+routing and ranked =glide_result= commit path.
+
+* Historical supersessions
+
+This supersedes the =Outcome and user contract=, =States and exact thresholds=,
+=Trace collection and feedback=, =Numbered implementation plan=, and =Explicit
+non-goals= sections in =2026-09-08-glide-modifier-keyboard.org=.  A
+positive-horizontal 2:1 first crossing now produces a Control-Meta candidate
+with exact =C-M-= feedback and =Ctrl | Alt= release; the remaining gesture and
+glide facts stay unchanged.
+
+* User contract
+
+With =--mod-swipe=, releasing an eligible character after a predominantly
+rightward first threshold crossing emits Control and Alt with that character,
+which Emacs displays as =C-M-=.  Predominantly rightward means positive
+horizontal displacement at least twice the absolute vertical displacement.
+The existing threshold remains the floor of 40% of key height with a 12-pixel
+minimum.
+
+A tap still emits the character, a predominantly upward crossing emits Control,
+and a predominantly downward crossing emits Alt.  Remaining leftward and
+nonpredominant diagonal paths retain the existing Latin-glide or cancellation
+behavior.  Space, non-character keys, Compose, ordinary pointer input, and
+competing touches are unchanged.
+
+The selected action latches at the first threshold crossing.  A Control-Meta
+candidate that began on a glide-capable Latin key may still become a glide, but
+only through the existing takeover gates: two traced letters, accumulated
+travel of at least twice the threshold, horizontal span of at least one
+threshold, and a valid bounded trace.  Before takeover the key and popup show
+the exact =C-M-= prefix.  Takeover clears that feedback and draws the glide
+trace.
+
+* State and event flow
+
+=mod-swipe.h= adds one ephemeral =ModSwipeControlAltCandidate= action.  The
+first-crossing classifier continues to compute signed 64-bit deltas and bounded
+unsigned magnitudes.  It checks vertical 2:1 dominance first, then positive
+horizontal 2:1 dominance, then uses the existing glide-candidate or cancelled
+fallback.  =maybe_enter_glide= remains the only candidate-to-glide transition
+and is unchanged.
+
+No modifier is applied during motion.  On a valid release, =main.c= passes
+=Ctrl | Alt= once to =kbd_activate_key=.  That established keyboard path
+publishes both modifier bits together, presses the selected key, and clears the
+transient modifiers through its balanced release path.  Invalid and cancelled
+gestures never call activation.  The existing non-pending release path clears
+the post-glide undo unit before any modifier activation.
+
+The accepted ranked-suggestion strip remains the outer input arbiter.  A strip
+event claimed by =keyboard.c= never starts a modifier swipe.  A miss continues
+through normal input cancellation, which dismisses the prior candidate session
+before starting a new gesture.  A rightward candidate that becomes a glide uses
+the ranked recognizer result and the single keyboard-owned commit transaction;
+a short Control-Meta release creates no candidate state.
+
+* Implementation boundary
+
+Production changes are limited to the action enum and classifier in
+=mod-swipe.h= and =mod-swipe.c=, release/feedback/help routing in =main.c=, and
+current user documentation.  There is no new helper, option, threshold,
+allocation, timer, durable state, or production change to =keyboard.c= or
+=keyboard.h=.
+
+* Verification
+
+Classifier tests cover the exact threshold and 2:1 boundary, below-threshold
+motion, right and left diagonals, the first-crossing latch, unchanged up/down
+actions, signed-coordinate extremes, invalidation and cancellation, and
+Control-Meta-to-glide takeover through all existing gates.
+
+The main release harness records the exact feedback prefix and transient
+modifier mask.  It proves =C-M-= feedback, =Ctrl | Alt= release routing,
+post-glide undo clearing, no activation on invalidation or cancellation, and
+feedback clearing on glide takeover.  A keyboard-level test uses the real
+=kbd_activate_key= path and Wayland event recorder to prove both modifier bits
+are published for the selected-key press, the release path publishes a cleared
+mask, and no modifier or pressed-key state remains afterward.
+
+After the accepted suggestions candidate lands, its candidate-precedence and
+single ranked-commit tests remain required.  Final local gates are formatting,
+the warning-clean =wvkbd-emacos= mobintl build, native tests, sanitizers, fuzz
+and dictionary gates after integration, and the full local review loop.
+
+Live Emacs verification is performed only through the workspace orchestrator.
+It checks readable =C-M-= feedback, a C-M key reported by
+=describe-key-briefly=, an immediately following unmodified tap, unchanged
+up/down gestures, and continuation from a right candidate into ranked glide
+suggestions.

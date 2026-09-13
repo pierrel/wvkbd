@@ -16,6 +16,7 @@ enum mod_swipe_action {
     ModSwipePending,
     ModSwipeControlCandidate,
     ModSwipeAltCandidate,
+    ModSwipeControlAltCandidate,
     ModSwipeGlideCandidate,
     ModSwipeGlide,
     ModSwipeCancelled,

@@ -14,6 +14,7 @@ static unsigned int candidate_clears;
 static enum kbd_candidate_event candidate_event_result;
 static unsigned int activated_keys;
 static struct key *activated_key;
+static uint8_t activated_mods;
 static bool activation_saw_input_owner;
 static unsigned int key_releases;
 static unsigned int release_calls;
@@ -33,6 +34,8 @@ static unsigned int next_layers;
 static unsigned int feedback_clears;
 static unsigned int popup_feedbacks;
 static bool popup_visible;
+static struct key *feedback_key;
+static char feedback_prefix[8];
 static struct key *next_key;
 static struct key *next_key_after_cancel;
 static struct key *looked_up_key;
@@ -107,6 +110,7 @@ kbd_activate_key(struct kbd *kb, struct key *key, uint32_t time,
     kb->mods |= transient_modifier;
     activated_keys++;
     activated_key = key;
+    activated_mods = transient_modifier;
     activation_saw_input_owner |=
         cur_press || kb->last_press || mod_swipe.active;
     kbd_press_key(kb, key, time);
@@ -216,6 +220,8 @@ kbd_clear_last_popup(struct kbd *kb)
 {
     popup_clears++;
     popup_visible = false;
+    feedback_key = NULL;
+    feedback_prefix[0] = '\0';
     kb->last_popup_w = kb->last_popup_h = 0;
     draw_events[draw_event_count++] = 'C';
 }
@@ -287,8 +293,9 @@ void
 kbd_show_key_feedback(struct kbd *kb, struct key *key, const char *prefix)
 {
     kbd_clear_last_popup(kb);
-    (void)key;
-    (void)prefix;
+    feedback_key = key;
+    snprintf(feedback_prefix, sizeof(feedback_prefix), "%s",
+             prefix ? prefix : "");
 }
 void
 kbd_show_popup_feedback(struct kbd *kb, struct key *key, const char *label)
@@ -305,6 +312,9 @@ kbd_clear_key_feedback(struct kbd *kb, struct key *key)
     (void)kb;
     (void)key;
     feedback_clears++;
+    feedback_key = NULL;
+    feedback_prefix[0] = '\0';
+    popup_visible = false;
 }
 void
 kbd_press_key(struct kbd *kb, struct key *key, uint32_t time)
@@ -362,6 +372,7 @@ reset(void)
     candidate_event_result = KbdCandidateMiss;
     activated_keys = 0;
     activated_key = NULL;
+    activated_mods = NoMod;
     activation_saw_input_owner = false;
     key_releases = 0;
     release_calls = 0;
@@ -381,6 +392,8 @@ reset(void)
     feedback_clears = 0;
     popup_feedbacks = 0;
     popup_visible = false;
+    feedback_key = NULL;
+    feedback_prefix[0] = '\0';
     next_key = NULL;
     next_key_after_cancel = NULL;
     looked_up_key = NULL;
@@ -442,7 +455,7 @@ test_deferred_punctuation_replaces_separator_on_release(void)
 }
 
 static void
-test_modified_punctuation_preserves_separator(void)
+test_control_alt_release_disarms_glide_followup(void)
 {
     struct key comma = {.type = Code, .code = KEY_COMMA};
 
@@ -450,14 +463,54 @@ test_modified_punctuation_preserves_separator(void)
     popup_xdg_surface_configured = true;
     next_key = &comma;
     wl_touch_down(NULL, NULL, 0, 7, NULL, 1, 0, 0);
-    mod_swipe.action = ModSwipeControlCandidate;
+    mod_swipe.action = ModSwipeControlAltCandidate;
     wl_touch_up(NULL, NULL, 0, 8, 1);
     assert(followup_calls == 1);
     assert(followup_key == &comma);
-    assert(followup_mods == Ctrl);
+    assert(followup_mods == (Ctrl | Alt));
     assert(keyboard.glide_undo_count == 0);
     assert(activated_keys == 1);
+    assert(activated_key == &comma);
+    assert(activated_mods == (Ctrl | Alt));
+    assert(!activation_saw_input_owner);
     assert(key_presses == 1);
+}
+
+static void
+test_control_alt_feedback_takeover_and_cancel(void)
+{
+    struct key start = {.type = Code, .code = KEY_H};
+    struct key intersection = {.type = Code, .code = KEY_E};
+
+    reset();
+    popup_xdg_surface_configured = true;
+    next_key = &start;
+    assert(mod_swipe_begin(&mod_swipe, 1, 0, 0, 1, &start, 60, true, 'h'));
+    wl_touch_motion(NULL, NULL, 2, 1, wl_fixed_from_int(24), 0);
+    assert(mod_swipe.action == ModSwipeControlAltCandidate);
+    assert(feedback_key == &start);
+    assert(strcmp(feedback_prefix, "C-M-") == 0);
+
+    next_key = &intersection;
+    wl_touch_motion(NULL, NULL, 3, 1, wl_fixed_from_int(48), 0);
+    assert(mod_swipe.action == ModSwipeGlide);
+    assert(feedback_key == NULL);
+    assert(feedback_prefix[0] == '\0');
+    assert(!popup_visible);
+    assert(layout_draws == 1);
+
+    reset();
+    popup_xdg_surface_configured = true;
+    next_key = &start;
+    assert(mod_swipe_begin(&mod_swipe, 1, 0, 0, 1, &start, 60, true, 'h'));
+    wl_touch_motion(NULL, NULL, 2, 1, wl_fixed_from_int(24), 0);
+    assert(strcmp(feedback_prefix, "C-M-") == 0);
+    wl_touch_cancel(NULL, NULL);
+    assert(!mod_swipe.active);
+    assert(keyboard.glide_undo_count == 0);
+    assert(feedback_prefix[0] == '\0');
+    assert(!popup_visible);
+    assert(activated_keys == 0);
 }
 
 static void
@@ -561,10 +614,10 @@ test_cancelled_feedback_once(void)
     reset();
     popup_xdg_surface_configured = true;
     assert(mod_swipe_begin(&mod_swipe, 1, 0, 0, 1, &key, 60, true, 0));
-    wl_touch_motion(NULL, NULL, 2, 1, wl_fixed_from_int(24), 0);
+    wl_touch_motion(NULL, NULL, 2, 1, wl_fixed_from_int(-24), 0);
     assert(mod_swipe.action == ModSwipeCancelled);
     assert(feedback_clears == 1);
-    wl_touch_motion(NULL, NULL, 3, 1, wl_fixed_from_int(48), 0);
+    wl_touch_motion(NULL, NULL, 3, 1, wl_fixed_from_int(-48), 0);
     assert(feedback_clears == 1);
 }
 
@@ -819,6 +872,7 @@ test_invalid_release_actions(void)
     expect_final_redraw(true, ModSwipePending, "h");
     expect_final_redraw(true, ModSwipeControlCandidate, "h");
     expect_final_redraw(true, ModSwipeAltCandidate, "h");
+    expect_final_redraw(true, ModSwipeControlAltCandidate, "h");
 }
 
 static void
@@ -831,9 +885,11 @@ test_glide_draw_order(void)
     popup_xdg_surface_configured = true;
     next_key = &intersection;
     assert(mod_swipe_begin(&mod_swipe, 1, 0, 0, 1, &start, 60, true, 'h'));
-    wl_touch_motion(NULL, NULL, 2, 1, wl_fixed_from_int(24), 0);
+    wl_touch_motion(NULL, NULL, 2, 1, wl_fixed_from_int(24),
+                    wl_fixed_from_int(13));
     assert(mod_swipe.action == ModSwipeGlideCandidate);
-    wl_touch_motion(NULL, NULL, 3, 1, wl_fixed_from_int(48), 0);
+    wl_touch_motion(NULL, NULL, 3, 1, wl_fixed_from_int(48),
+                    wl_fixed_from_int(13));
     assert(mod_swipe.action == ModSwipeGlide);
     assert(draw_event_count == 6);
     assert(memcmp(draw_events, "LCKKFF", draw_event_count) == 0);
@@ -967,7 +1023,8 @@ main(void)
     test_glide_no_match_feedback();
     test_glide_undo_input_order();
     test_deferred_punctuation_replaces_separator_on_release();
-    test_modified_punctuation_preserves_separator();
+    test_control_alt_release_disarms_glide_followup();
+    test_control_alt_feedback_takeover_and_cancel();
     test_glide_draw_order();
     test_non_code_key_cannot_extend_glide_trace();
     test_candidate_routing_precedes_normal_input();

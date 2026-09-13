@@ -418,6 +418,7 @@ candidate_fixture_init(struct candidate_fixture *fixture)
         .h = 120,
         .layout = &fixture->layout,
         .surf = &fixture->surface,
+        .popup_surf = &fixture->surface,
         .schemes = fixture->schemes,
     };
 }
@@ -428,6 +429,39 @@ candidate_fixture_destroy(struct candidate_fixture *fixture)
     g_object_unref(fixture->surface.layout);
     cairo_destroy(fixture->surface.cairo);
     cairo_surface_destroy(fixture->image);
+}
+
+static void
+test_control_alt_activation_is_balanced(void)
+{
+    struct candidate_fixture fixture;
+    struct key key = {
+        .label = "a",
+        .shift_label = "A",
+        .width = 1,
+        .type = Code,
+        .code = KEY_A,
+        .w = 100,
+        .h = 60,
+    };
+
+    candidate_fixture_init(&fixture);
+    reset_events();
+    kbd_activate_key(&fixture.keyboard, &key, 42, Ctrl | Alt);
+    assert(event_count == 4);
+    assert(events[0].opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS);
+    assert(events[0].first == (Ctrl | Alt));
+    assert(events[1].opcode == ZWP_VIRTUAL_KEYBOARD_V1_KEY);
+    assert(events[1].second == KEY_A);
+    assert(events[1].third == WL_KEYBOARD_KEY_STATE_PRESSED);
+    assert(events[2].opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS);
+    assert(events[2].first == 0);
+    assert(events[3].opcode == ZWP_VIRTUAL_KEYBOARD_V1_KEY);
+    assert(events[3].second == KEY_A);
+    assert(events[3].third == WL_KEYBOARD_KEY_STATE_RELEASED);
+    assert(fixture.keyboard.mods == 0);
+    assert(fixture.keyboard.last_press == NULL);
+    candidate_fixture_destroy(&fixture);
 }
 
 static struct glide_result
@@ -612,6 +646,7 @@ test_candidate_zero_and_case_replacement(void)
 int
 main(void)
 {
+    test_control_alt_activation_is_balanced();
     test_batch_emission();
     test_capslock_and_full_letter_map();
     test_capslock_shift_xor();
