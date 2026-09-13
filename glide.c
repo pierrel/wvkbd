@@ -1,10 +1,10 @@
 #include <stdint.h>
+#include <string.h>
 
 #include "glide.h"
 #include "glide-words-en.h"
 
-_Static_assert(sizeof(glide_word_bytes) + sizeof(glide_buckets) <=
-                   256 * 1024,
+_Static_assert(sizeof(glide_word_bytes) + sizeof(glide_buckets) <= 256 * 1024,
                "glide dictionary payload exceeds its bound");
 
 static size_t
@@ -104,17 +104,6 @@ resample(const struct glide_point *points, size_t length,
     return true;
 }
 
-static size_t
-word_length(const char *word)
-{
-    size_t length = 0;
-
-    while (length <= GLIDE_MAX_WORD && word[length]) {
-        length++;
-    }
-    return length;
-}
-
 static uint64_t
 score(const struct glide_point gesture[GLIDE_PATH_SAMPLES],
       const struct glide_point candidate[GLIDE_PATH_SAMPLES])
@@ -128,77 +117,119 @@ score(const struct glide_point gesture[GLIDE_PATH_SAMPLES],
     return total / GLIDE_PATH_SAMPLES + (total % GLIDE_PATH_SAMPLES != 0);
 }
 
-bool
+struct ranked_match {
+    struct glide_match match;
+    uint64_t error;
+};
+
+static void
+keep_match(struct ranked_match matches[GLIDE_MAX_MATCHES], size_t *count,
+           const char *word, size_t length, uint64_t error)
+{
+    size_t position = 0;
+
+    while (position < *count && matches[position].error <= error) {
+        position++;
+    }
+    if (position == GLIDE_MAX_MATCHES) {
+        return;
+    }
+    if (*count < GLIDE_MAX_MATCHES) {
+        (*count)++;
+    }
+    for (size_t i = *count - 1; i > position; i--) {
+        matches[i] = matches[i - 1];
+    }
+    matches[position] = (struct ranked_match){
+        .match = {.word = word, .length = length},
+        .error = error,
+    };
+}
+
+void
 glide_recognize(const char *trace, const struct glide_point *points,
                 size_t length, const struct glide_geometry *geometry,
-                struct glide_match *match)
+                struct glide_result *result)
 {
     struct glide_point gesture[GLIDE_PATH_SAMPLES];
     const struct glide_bucket_range *bucket;
-    const char *best_word = NULL;
-    size_t best_length = 0;
-    uint64_t best_error = UINT64_MAX;
-    uint64_t runner_error = UINT64_MAX;
+    struct ranked_match matches[GLIDE_MAX_MATCHES] = {0};
+    size_t match_count = 0;
     uint64_t threshold;
 
-    if (!match || !trace || !points || !geometry || !geometry->complete ||
+    if (!result) {
+        return;
+    }
+    *result = (struct glide_result){0};
+    if (!trace || !points || !geometry || !geometry->complete ||
         geometry->key_height == 0 || length < 2 || length > GLIDE_MAX_TRACE ||
         trace[0] < 'a' || trace[0] > 'z' || trace[length - 1] < 'a' ||
         trace[length - 1] > 'z') {
-        return false;
+        return;
     }
     for (size_t i = 0; i < length; i++) {
         if (trace[i] < 'a' || trace[i] > 'z') {
-            return false;
+            return;
         }
     }
     if (!resample(points, length, gesture)) {
-        return false;
-    }
-    bucket = &glide_buckets[trace[0] - 'a'][trace[length - 1] - 'a'];
-    const char *word = (const char *)&glide_word_bytes[bucket->byte_start];
-    for (unsigned int offset = 0; offset < bucket->count; offset++) {
-        struct glide_point vertices[GLIDE_MAX_WORD];
-        struct glide_point candidate[GLIDE_PATH_SAMPLES];
-        char signature[GLIDE_MAX_WORD];
-        size_t word_size = word_length(word);
-        size_t signature_length;
-        uint64_t error;
-        if (word_size == 0 || word_size > GLIDE_MAX_WORD) {
-            return false;
-        }
-        signature_length =
-            collapse(word, word_size, signature, sizeof(signature));
-        if (signature_length >= 2) {
-            for (size_t i = 0; i < signature_length; i++) {
-                vertices[i] = geometry->letters[signature[i] - 'a'];
-            }
-            if (!resample(vertices, signature_length, candidate)) {
-                return false;
-            }
-            error = score(gesture, candidate);
-            if (!best_word || error < best_error) {
-                if (best_word && best_error < runner_error) {
-                    runner_error = best_error;
-                }
-                best_word = word;
-                best_length = word_size;
-                best_error = error;
-            } else if (error < runner_error) {
-                runner_error = error;
-            }
-        }
-        word += word_size + 1;
+        return;
     }
     threshold = ((uint64_t)geometry->key_height * 9) / 10;
     if (threshold < 12) {
         threshold = 12;
     }
-    if (!best_word || best_error > threshold ||
-        (runner_error != UINT64_MAX && runner_error <= best_error)) {
-        return false;
+    bucket = &glide_buckets[trace[0] - 'a'][trace[length - 1] - 'a'];
+    if (bucket->count > 512 || bucket->byte_start > bucket->byte_end ||
+        bucket->byte_end > sizeof(glide_word_bytes) - 1) {
+        return;
     }
-    match->word = best_word;
-    match->length = best_length;
-    return true;
+    const unsigned char *word = &glide_word_bytes[bucket->byte_start];
+    const unsigned char *end = &glide_word_bytes[bucket->byte_end];
+    for (unsigned int offset = 0; offset < bucket->count; offset++) {
+        struct glide_point vertices[GLIDE_MAX_WORD];
+        struct glide_point candidate[GLIDE_PATH_SAMPLES];
+        char signature[GLIDE_MAX_WORD];
+        const unsigned char *terminator =
+            memchr(word, '\0', (size_t)(end - word));
+        size_t word_size;
+        size_t signature_length;
+        uint64_t error;
+
+        if (!terminator) {
+            return;
+        }
+        word_size = (size_t)(terminator - word);
+        if (word_size < 2 || word_size > GLIDE_MAX_WORD) {
+            return;
+        }
+        for (size_t i = 0; i < word_size; i++) {
+            if (word[i] < 'a' || word[i] > 'z') {
+                return;
+            }
+        }
+        signature_length = collapse((const char *)word, word_size, signature,
+                                    sizeof(signature));
+        if (signature_length >= 2) {
+            for (size_t i = 0; i < signature_length; i++) {
+                vertices[i] = geometry->letters[signature[i] - 'a'];
+            }
+            if (!resample(vertices, signature_length, candidate)) {
+                return;
+            }
+            error = score(gesture, candidate);
+            if (error <= threshold) {
+                keep_match(matches, &match_count, (const char *)word, word_size,
+                           error);
+            }
+        }
+        word = terminator + 1;
+    }
+    if (word != end) {
+        return;
+    }
+    result->count = match_count;
+    for (size_t i = 0; i < match_count; i++) {
+        result->matches[i] = matches[i].match;
+    }
 }

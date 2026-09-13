@@ -1,0 +1,109 @@
+#+title: Ranked glide suggestions
+#+date: 2026-09-12
+
+* State
+
+The design is accepted on wvkbd =emacsos= commit =04bc831=.  The implementation
+must preserve the landed word-plus-Space follow-up contract and remain entirely
+inside wvkbd.  EmacsOS will only pin and deploy the resulting keyboard revision.
+
+* Historical supersessions
+
+This supersedes only =2026-09-10-geometry-glide-recognizer.org=,
+=Preserved user contract= item 5 and its single-result ambiguity rule, and the
+post-glide correction portions of =2026-09-11-glide-word-editing.org=,
+=2026-09-11-glide-followup-spacing.org=, and
+=2026-09-11-glide-shift-followup.org=.  Geometry, modifier gestures, automatic
+spacing, and immediate follow-up editing remain authoritative.
+
+* User contract
+
+A qualified glide produces zero to three ranked words.  The keyboard emits the
+first word and one Space immediately, then covers its top row with the returned
+candidates.  A candidate press highlights its cell.  Releasing in the same cell
+replaces the current word-plus-Space once and closes the strip.  Candidate zero
+uses the same replacement path, so selection always has one transaction.
+
+A press below the strip closes it and continues as ordinary input.  A blank
+strip cell closes it without activating the covered key.  Covered top-row keys
+become available after dismissal.  The existing visual-only popup remains input
+empty and is used only for ordinary key feedback and the no-match =?=.
+
+After dismissal or replacement, the current word unit retains the landed
+follow-up behavior: Backspace retracts it, Space coalesces, punctuation replaces
+its separator, and Shift preserves that decision for the following key.
+
+* Dictionary and ranking
+
+The generated dictionary uses =hermitdave/FrequencyWords= file
+=content/2018/en/en_50k.txt= at commit
+=525f9b560de45753a5ea01069454e72e9aa541c6=.  The exact source is 622749 bytes
+with SHA-256
+=5351ff405b1126ef555791dd4d9798a48e3e9a501a9fc481a9da957752cfb458=.
+It is an OpenSubtitles 2018 frequency list licensed CC BY-SA 4.0.
+
+Generation validates the exact source, two-field non-increasing frequency
+records, and the first 20000 unique lowercase ASCII words of length 2 through
+24.  Source order is the frequency rank.  A first/last-letter bucket over 512
+entries or a total static payload over 256 KiB is an error, never truncation.
+Each generated bucket has a count and exclusive byte range.  Runtime decoding
+validates those bounds and every explicit word length before scoring.
+
+The recognizer keeps at most three fixed candidates while scanning one bucket.
+It orders them by lower geometric error and then earlier source position.  Only
+words within the existing geometry threshold are returned.  Frequency order
+resolves equal geometry instead of rejecting the entire glide.
+
+* Keyboard-owned transaction
+
+=glide_recognize= returns one bounded ordered result.  =main.c= passes it once
+to =keyboard.c= and owns no candidate state or text emission.  The keyboard
+stores at most three static word views, the original Shift/CapsLock case, one
+pressed slot, and either a touch identifier or pointer button owner.
+
+Initial and replacement words use one internal validated word-plus-Space
+emitter.  Replacement saves and clears the old undo count, sends that many
+balanced Backspaces with modifiers cleared, emits the selected word using the
+original case, restores live modifiers, and records the new length-plus-one.
+The candidate session closes before output so it cannot fire twice.
+
+Candidate visibility is independent of =glide_undo_count=.  Ordinary input
+clears the strip without accidentally disarming Shift-preserved spacing.  Layout,
+resize, hide, output, seat, touch-cancel, and surface teardown clear both kinds
+of state through their existing lifecycle boundaries.
+
+* Input surface
+
+The strip is the half-open keyboard rectangle =[0,w) x [0,keyheight)=, divided
+into three exact thirds with 64-bit intermediate arithmetic.  Signed coordinates
+are range-checked before casting or indexing.  Candidate routing runs before
+=cancel_active_input= and normal key lookup.
+
+Candidate handlers return =miss=, =dismissed=, =claimed=, or =owned=.  Only
+=miss= permits normal dispatch.  Touch selection requires the initiating touch
+identifier.  Pointer selection additionally requires release of the initiating
+button.  Motion may remove and restore pressed feedback only for the original
+cell; it never retargets a selection.
+
+Labels are drawn from explicit bounded match lengths with end ellipsis.  Pango
+never scans candidate storage for a terminator.  Opening, pressing, and closing
+redraw the keyboard surface; the popup input region remains empty.
+
+* Bounds and non-goals
+
+There is no runtime allocation, dictionary file I/O, network access, sentence
+context, application identity, learning, timer, or durable correction log.
+Runtime work is bounded by one 512-entry bucket, 32 path samples, 24 letters,
+and three retained matches.  External cursor edits and compositor disconnects
+remain unobservable limits of ordinary virtual-keyboard events.
+
+* Verification
+
+Deterministic coverage must prove dictionary provenance and regeneration,
+malformed and oversized source rejection, zero through three ranked results,
+equal-error frequency order, geometry fixtures, bounds and fuzz invariants,
+worst-bucket timing, all case combinations, balanced replacement events,
+follow-up editing, strip geometry and rendering, touch/pointer ownership,
+ordinary dispatch after dismissal, and every lifecycle reset.  The final gate
+is formatting, warning-clean builds, native tests, sanitizers, fuzzing, the
+AArch64 benchmark, and the full local review loop.

@@ -35,11 +35,15 @@ __wrap_wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
                               uint32_t version, uint32_t flags, ...)
 {
     va_list arguments;
-    struct recorded_event *event = &events[event_count++];
+    struct recorded_event *event;
 
-    (void)proxy;
     (void)interface;
     (void)version;
+    if (proxy != (struct wl_proxy *)(uintptr_t)1) {
+        return NULL;
+    }
+    assert(event_count < sizeof(events) / sizeof(events[0]));
+    event = &events[event_count++];
     event->opcode = opcode;
     va_start(arguments, flags);
     event->first = va_arg(arguments, uint32_t);
@@ -70,6 +74,18 @@ expect_pair(size_t index, uint32_t code)
     assert(events[index + 1].third == WL_KEYBOARD_KEY_STATE_RELEASED);
 }
 
+static bool
+commit_word(struct kbd *keyboard, const char *word, size_t length,
+            uint32_t time)
+{
+    struct glide_result result = {
+        .count = 1,
+        .matches = {{.word = word, .length = length}},
+    };
+
+    return kbd_commit_glide_result(keyboard, &result, time);
+}
+
 static void
 test_batch_emission(void)
 {
@@ -91,7 +107,7 @@ test_batch_emission(void)
     close(pipefd[1]);
     keyboard.print = true;
     reset_events();
-    assert(kbd_emit_ascii_word(&keyboard, "abc", 3, 42));
+    assert(commit_word(&keyboard, "abc", 3, 42));
     fflush(stdout);
     assert(dup2(saved_stdout, STDOUT_FILENO) >= 0);
     close(saved_stdout);
@@ -123,7 +139,7 @@ test_capslock_and_full_letter_map(void)
     };
 
     reset_events();
-    assert(kbd_emit_ascii_word(&keyboard, "az", 2, 9));
+    assert(commit_word(&keyboard, "az", 2, 9));
     assert(event_count == 7);
     assert(events[0].opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS);
     assert(events[0].first == CapsLock);
@@ -137,12 +153,12 @@ test_capslock_and_full_letter_map(void)
 
         assert(glide_letter_to_evdev(letter, &code));
         reset_events();
-        assert(kbd_emit_ascii_word(&keyboard, &letter, 1, 7));
+        assert(commit_word(&keyboard, &letter, 1, 7));
         assert(event_count == 5);
         expect_pair(1, code);
     }
     reset_events();
-    assert(!kbd_emit_ascii_word(&keyboard, "a-", 2, 7));
+    assert(!commit_word(&keyboard, "a-", 2, 7));
     assert(event_count == 0);
 }
 
@@ -163,7 +179,7 @@ test_capslock_shift_xor(void)
     assert(saved_stdout >= 0);
     assert(dup2(pipefd[1], STDOUT_FILENO) >= 0);
     close(pipefd[1]);
-    assert(kbd_emit_ascii_word(&keyboard, "abc", 3, 42));
+    assert(commit_word(&keyboard, "abc", 3, 42));
     fflush(stdout);
     assert(dup2(saved_stdout, STDOUT_FILENO) >= 0);
     close(saved_stdout);
@@ -373,6 +389,226 @@ test_glide_admission(void)
     assert(!kbd_glide_letter(&keyboard, &latin_target, NULL));
 }
 
+struct candidate_fixture {
+    cairo_surface_t *image;
+    struct drwsurf surface;
+    struct layout layout;
+    struct clr_scheme schemes[1];
+    struct kbd keyboard;
+};
+
+static void
+candidate_fixture_init(struct candidate_fixture *fixture)
+{
+    static struct key terminal = {.type = Last};
+
+    *fixture = (struct candidate_fixture){0};
+    fixture->image = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 301, 120);
+    assert(cairo_surface_status(fixture->image) == CAIRO_STATUS_SUCCESS);
+    fixture->surface.cairo = cairo_create(fixture->image);
+    assert(cairo_status(fixture->surface.cairo) == CAIRO_STATUS_SUCCESS);
+    fixture->surface.layout = pango_cairo_create_layout(fixture->surface.cairo);
+    fixture->surface.surf = (struct wl_surface *)(uintptr_t)2;
+    fixture->layout.keys = &terminal;
+    fixture->layout.keyheight = 60;
+    fixture->schemes[0].rounding = 0;
+    fixture->keyboard = (struct kbd){
+        .vkbd = (struct zwp_virtual_keyboard_v1 *)(uintptr_t)1,
+        .w = 301,
+        .h = 120,
+        .layout = &fixture->layout,
+        .surf = &fixture->surface,
+        .schemes = fixture->schemes,
+    };
+}
+
+static void
+candidate_fixture_destroy(struct candidate_fixture *fixture)
+{
+    g_object_unref(fixture->surface.layout);
+    cairo_destroy(fixture->surface.cairo);
+    cairo_surface_destroy(fixture->image);
+}
+
+static struct glide_result
+candidate_result(size_t count)
+{
+    static const char first[] = "hello";
+    static const char second[] = "help";
+    static const char third[] = "held";
+    struct glide_result result = {
+        .count = count,
+        .matches =
+            {
+                {.word = first, .length = sizeof(first) - 1},
+                {.word = second, .length = sizeof(second) - 1},
+                {.word = third, .length = sizeof(third) - 1},
+            },
+    };
+
+    return result;
+}
+
+static void
+test_candidate_touch_replacement(void)
+{
+    struct candidate_fixture fixture;
+    struct glide_result result = candidate_result(3);
+    struct kbd *keyboard;
+
+    candidate_fixture_init(&fixture);
+    keyboard = &fixture.keyboard;
+    keyboard->mods = Shift;
+    reset_events();
+    assert(kbd_commit_glide_result(keyboard, &result, 9));
+    assert(keyboard->candidates.count == 3);
+    assert(keyboard->candidates.case_mods == Shift);
+    assert(keyboard->mods == 0);
+    assert(keyboard->glide_undo_count == 6);
+
+    reset_events();
+    assert(kbd_candidate_touch_down(keyboard, 41, 150, 30) ==
+           KbdCandidateClaimed);
+    assert(keyboard->candidates.owner == KbdCandidateOwnerTouch);
+    assert(keyboard->candidates.pressed_slot == 1);
+    assert(kbd_candidate_touch_up(keyboard, 99, 10) == KbdCandidateOwned);
+    assert(keyboard->candidates.count == 3);
+    assert(kbd_candidate_touch_motion(keyboard, 41, 250, 30) ==
+           KbdCandidateOwned);
+    assert(!keyboard->candidates.pressed_inside);
+    assert(kbd_candidate_touch_up(keyboard, 41, 11) == KbdCandidateOwned);
+    assert(keyboard->candidates.count == 0);
+    assert(keyboard->glide_undo_count == 6);
+    assert(event_count == 0);
+
+    keyboard->mods = Shift;
+    assert(kbd_commit_glide_result(keyboard, &result, 12));
+    reset_events();
+    assert(kbd_candidate_touch_down(keyboard, 42, 150, 30) ==
+           KbdCandidateClaimed);
+    assert(kbd_candidate_touch_up(keyboard, 42, 13) == KbdCandidateOwned);
+    assert(keyboard->candidates.count == 0);
+    assert(keyboard->glide_undo_count == 5);
+    assert(keyboard->mods == 0);
+    assert(event_count == 25);
+    assert(events[0].opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS);
+    for (size_t i = 1; i < 13; i += 2) {
+        expect_pair(i, KEY_BACKSPACE);
+    }
+    assert(events[13].opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS);
+    assert(events[13].first == Shift);
+    expect_pair(14, KEY_H);
+    assert(events[16].opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS);
+    assert(events[16].first == 0);
+    expect_pair(17, KEY_E);
+    expect_pair(19, KEY_L);
+    expect_pair(21, KEY_P);
+    expect_pair(23, KEY_SPACE);
+    candidate_fixture_destroy(&fixture);
+}
+
+static void
+test_candidate_hit_testing_and_pointer_ownership(void)
+{
+    struct candidate_fixture fixture;
+    struct glide_result result = candidate_result(1);
+    struct kbd *keyboard;
+
+    candidate_fixture_init(&fixture);
+    keyboard = &fixture.keyboard;
+    assert(kbd_commit_glide_result(keyboard, &result, 1));
+    reset_events();
+    assert(kbd_candidate_touch_down(keyboard, 1, 100, 30) ==
+           KbdCandidateDismissed);
+    assert(keyboard->candidates.count == 0);
+
+    result.count = 2;
+    assert(kbd_commit_glide_result(keyboard, &result, 1));
+    reset_events();
+    assert(kbd_candidate_touch_down(keyboard, 1, -1, 0) == KbdCandidateMiss);
+    assert(kbd_candidate_touch_down(keyboard, 1, 0, -1) == KbdCandidateMiss);
+    assert(kbd_candidate_touch_down(keyboard, 1, 301, 0) == KbdCandidateMiss);
+    assert(kbd_candidate_touch_down(keyboard, 1, 0, 60) == KbdCandidateMiss);
+    assert(keyboard->candidates.count == 2);
+    assert(kbd_candidate_touch_down(keyboard, 1, 250, 30) ==
+           KbdCandidateDismissed);
+    assert(keyboard->candidates.count == 0);
+    assert(event_count == 0);
+
+    assert(kbd_commit_glide_result(keyboard, &result, 2));
+    reset_events();
+    assert(kbd_candidate_pointer_button(keyboard, 272, true, 150, 30, 3) ==
+           KbdCandidateClaimed);
+    assert(kbd_candidate_pointer_button(keyboard, 273, false, 150, 30, 4) ==
+           KbdCandidateOwned);
+    assert(keyboard->candidates.count == 2);
+    assert(kbd_candidate_pointer_button(keyboard, 272, false, 150, 30, 5) ==
+           KbdCandidateOwned);
+    assert(keyboard->candidates.count == 0);
+    assert(keyboard->glide_undo_count == 5);
+
+    result.count = GLIDE_MAX_MATCHES + 1;
+    reset_events();
+    assert(!kbd_commit_glide_result(keyboard, &result, 6));
+    assert(event_count == 0);
+    assert(keyboard->candidates.count == 0);
+    candidate_fixture_destroy(&fixture);
+}
+
+static void
+test_candidate_clear_resets_owned_session(void)
+{
+    struct candidate_fixture fixture;
+    struct glide_result result = candidate_result(3);
+    struct kbd *keyboard;
+
+    candidate_fixture_init(&fixture);
+    keyboard = &fixture.keyboard;
+    assert(kbd_commit_glide_result(keyboard, &result, 1));
+    assert(kbd_candidate_touch_down(keyboard, 41, 150, 30) ==
+           KbdCandidateClaimed);
+    assert(keyboard->candidates.owner == KbdCandidateOwnerTouch);
+
+    reset_events();
+    kbd_clear_candidates(keyboard);
+    assert(keyboard->candidates.count == 0);
+    assert(keyboard->candidates.owner == KbdCandidateOwnerNone);
+    assert(!keyboard->candidates.pressed_inside);
+    assert(event_count == 0);
+    candidate_fixture_destroy(&fixture);
+}
+
+static void
+test_candidate_zero_and_case_replacement(void)
+{
+    static const uint8_t cases[] = {0, Shift, CapsLock, Shift | CapsLock};
+    struct candidate_fixture fixture;
+    struct glide_result result = candidate_result(2);
+    struct kbd *keyboard;
+
+    candidate_fixture_init(&fixture);
+    keyboard = &fixture.keyboard;
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        uint8_t live_mods = cases[i] & CapsLock;
+        size_t word_start;
+
+        keyboard->mods = cases[i];
+        assert(kbd_commit_glide_result(keyboard, &result, 1));
+        assert(keyboard->mods == live_mods);
+        reset_events();
+        assert(kbd_candidate_touch_down(keyboard, 1, 10, 30) ==
+               KbdCandidateClaimed);
+        assert(kbd_candidate_touch_up(keyboard, 1, 2) == KbdCandidateOwned);
+        word_start = 13;
+        assert(events[word_start].opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS);
+        assert(events[word_start].first == cases[i]);
+        assert(keyboard->mods == live_mods);
+        assert(keyboard->glide_undo_count == 6);
+        assert(keyboard->candidates.count == 0);
+    }
+    candidate_fixture_destroy(&fixture);
+}
+
 int
 main(void)
 {
@@ -381,6 +617,10 @@ main(void)
     test_capslock_shift_xor();
     test_glide_undo();
     test_glide_admission();
+    test_candidate_touch_replacement();
+    test_candidate_hit_testing_and_pointer_ownership();
+    test_candidate_clear_resets_owned_session();
+    test_candidate_zero_and_case_replacement();
     puts("keyboard glide tests passed");
     return 0;
 }

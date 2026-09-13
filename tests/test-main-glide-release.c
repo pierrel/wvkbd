@@ -9,6 +9,9 @@
 #undef main
 
 static unsigned int emitted_words;
+static unsigned int candidate_commits;
+static unsigned int candidate_clears;
+static enum kbd_candidate_event candidate_event_result;
 static unsigned int activated_keys;
 static struct key *activated_key;
 static bool activation_saw_input_owner;
@@ -16,6 +19,7 @@ static unsigned int key_releases;
 static unsigned int release_calls;
 static unsigned int unpress_calls;
 static unsigned int key_presses;
+static unsigned int key_motions;
 static unsigned int followup_calls;
 static bool followup_consumed;
 static const struct key *followup_key;
@@ -103,21 +107,83 @@ kbd_activate_key(struct kbd *kb, struct key *key, uint32_t time,
     kb->mods |= transient_modifier;
     activated_keys++;
     activated_key = key;
-    activation_saw_input_owner |= cur_press || kb->last_press || mod_swipe.active;
+    activation_saw_input_owner |=
+        cur_press || kb->last_press || mod_swipe.active;
     kbd_press_key(kb, key, time);
     kbd_release_key(kb, time);
     kb->mods = saved_mods;
 }
 
 bool
-kbd_emit_ascii_word(struct kbd *kb, const char *word, size_t length,
-                    uint32_t time)
+kbd_commit_glide_result(struct kbd *kb, const struct glide_result *result,
+                        uint32_t time)
 {
-    (void)word;
     (void)time;
+    candidate_commits++;
+    if (!result || !result->count) {
+        return false;
+    }
     emitted_words++;
-    kb->glide_undo_count = (uint8_t)(length + 1);
+    kb->glide_undo_count = (uint8_t)(result->matches[0].length + 1);
     return true;
+}
+
+enum kbd_candidate_event
+kbd_candidate_touch_down(struct kbd *kb, int32_t id, int32_t x, int32_t y)
+{
+    (void)kb;
+    (void)id;
+    (void)x;
+    (void)y;
+    return candidate_event_result;
+}
+
+enum kbd_candidate_event
+kbd_candidate_touch_motion(struct kbd *kb, int32_t id, int32_t x, int32_t y)
+{
+    (void)kb;
+    (void)id;
+    (void)x;
+    (void)y;
+    return candidate_event_result;
+}
+
+enum kbd_candidate_event
+kbd_candidate_touch_up(struct kbd *kb, int32_t id, uint32_t time)
+{
+    (void)kb;
+    (void)id;
+    (void)time;
+    return candidate_event_result;
+}
+
+enum kbd_candidate_event
+kbd_candidate_pointer_button(struct kbd *kb, uint32_t button, bool pressed,
+                             int32_t x, int32_t y, uint32_t time)
+{
+    (void)kb;
+    (void)button;
+    (void)pressed;
+    (void)x;
+    (void)y;
+    (void)time;
+    return candidate_event_result;
+}
+
+enum kbd_candidate_event
+kbd_candidate_pointer_motion(struct kbd *kb, int32_t x, int32_t y)
+{
+    (void)kb;
+    (void)x;
+    (void)y;
+    return candidate_event_result;
+}
+
+void
+kbd_clear_candidates(struct kbd *kb)
+{
+    (void)kb;
+    candidate_clears++;
 }
 
 void
@@ -187,8 +253,9 @@ kbd_get_key(struct kbd *kb, uint32_t x, uint32_t y)
     (void)kb;
     (void)x;
     (void)y;
-    looked_up_key = lookup_depends_on_compose && cancel_finished ?
-                        next_key_after_cancel : next_key;
+    looked_up_key = lookup_depends_on_compose && cancel_finished
+                        ? next_key_after_cancel
+                        : next_key;
     return looked_up_key;
 }
 bool
@@ -254,6 +321,7 @@ kbd_motion_key(struct kbd *kb, uint32_t time, uint32_t x, uint32_t y)
     (void)time;
     (void)x;
     (void)y;
+    key_motions++;
 }
 void
 kbd_draw_key(struct kbd *kb, struct key *key, enum key_draw_type type)
@@ -289,6 +357,9 @@ reset(void)
     mod_swipe = (struct mod_swipe_state){0};
     mod_swipe_enabled = true;
     emitted_words = 0;
+    candidate_commits = 0;
+    candidate_clears = 0;
+    candidate_event_result = KbdCandidateMiss;
     activated_keys = 0;
     activated_key = NULL;
     activation_saw_input_owner = false;
@@ -296,6 +367,7 @@ reset(void)
     release_calls = 0;
     unpress_calls = 0;
     key_presses = 0;
+    key_motions = 0;
     followup_calls = 0;
     followup_consumed = false;
     followup_key = NULL;
@@ -322,6 +394,7 @@ reset(void)
     hidden = false;
     run_display = true;
     cur_press = false;
+    cur_button = 0;
     cur_x = cur_y = -1;
     keyboard.layouts = layouts;
     keyboard.layers = test_layers;
@@ -406,7 +479,7 @@ test_touch_cancels_held_pointer_before_compose_transition(void)
     assert(layout_switches == 1);
     assert(!layout_switch_saw_input_owner);
     assert(!cur_press && cur_x == -1 && cur_y == -1);
-    wl_pointer_button(NULL, NULL, 0, 8, 0, WL_POINTER_BUTTON_STATE_RELEASED);
+    wl_pointer_button(NULL, NULL, 0, 8, 272, WL_POINTER_BUTTON_STATE_RELEASED);
     assert(release_calls == 1);
     assert(key_releases == 1);
 }
@@ -420,7 +493,7 @@ test_pointer_down_is_ignored_while_touch_owns_input(void)
     popup_xdg_surface_configured = true;
     next_key = &key;
     seed_deferred_glide();
-    wl_pointer_button(NULL, NULL, 0, 2, 0, WL_POINTER_BUTTON_STATE_PRESSED);
+    wl_pointer_button(NULL, NULL, 0, 2, 272, WL_POINTER_BUTTON_STATE_PRESSED);
     assert(mod_swipe.active);
     assert(!cur_press);
     assert(release_calls == 0);
@@ -476,7 +549,7 @@ test_lookup_follows_cancelled_compose_layout(void)
     keyboard.compose = 2;
     keyboard.last_press = &old_key;
     cur_x = cur_y = 0;
-    wl_pointer_button(NULL, NULL, 0, 7, 0, WL_POINTER_BUTTON_STATE_PRESSED);
+    wl_pointer_button(NULL, NULL, 0, 7, 272, WL_POINTER_BUTTON_STATE_PRESSED);
     assert(looked_up_key == &after);
 }
 
@@ -547,7 +620,7 @@ test_compose_dismissal(void)
     keyboard.compose = 1;
     keyboard.last_press = &key;
     cur_x = cur_y = 0;
-    wl_pointer_button(NULL, NULL, 0, 1, 0, WL_POINTER_BUTTON_STATE_PRESSED);
+    wl_pointer_button(NULL, NULL, 0, 1, 272, WL_POINTER_BUTTON_STATE_PRESSED);
     assert(key_releases == 1);
     assert(!cur_press && cur_x == -1 && cur_y == -1);
 }
@@ -598,6 +671,7 @@ expect_cancelled(unsigned int extra_flips)
     assert(popup_clears == 1);
     assert(surface_flips == 2 + extra_flips);
     assert(key_releases == 0);
+    assert(candidate_clears >= 1);
 }
 
 static void
@@ -684,11 +758,10 @@ expect_final_redraw(bool invalid, enum mod_swipe_action action,
     wl_touch_up(NULL, NULL, 0, 9, 1);
     assert(layout_draws == 1);
     assert(popup_clears == 1);
-    assert(surface_flips ==
-           (action == ModSwipeGlide && invalid ? 3U : 2U));
+    assert(surface_flips == (action == ModSwipeGlide && invalid ? 3U : 2U));
     assert(emitted_words == (action == ModSwipeGlide && !invalid));
-    assert(popup_feedbacks ==
-           (action == ModSwipeGlide && invalid ? 1U : 0U));
+    assert(candidate_commits == (action == ModSwipeGlide && !invalid));
+    assert(popup_feedbacks == (action == ModSwipeGlide && invalid ? 1U : 0U));
     assert(activated_keys == 0);
     if (action == ModSwipeGlide && !invalid) {
         assert(keyboard.glide_undo_count > 1);
@@ -781,6 +854,108 @@ test_non_code_key_cannot_extend_glide_trace(void)
     assert(!mod_swipe.endpoint_mapped);
 }
 
+static void
+test_candidate_routing_precedes_normal_input(void)
+{
+    struct key key = {.type = Code, .code = KEY_A};
+
+    reset();
+    popup_xdg_surface_configured = true;
+    next_key = &key;
+    candidate_event_result = KbdCandidateClaimed;
+    wl_touch_down(NULL, NULL, 0, 7, NULL, 41, wl_fixed_from_int(10),
+                  wl_fixed_from_int(10));
+    assert(looked_up_key == NULL);
+    assert(key_presses == 0);
+    assert(candidate_clears == 0);
+
+    reset();
+    popup_xdg_surface_configured = true;
+    seed_deferred_glide();
+    candidate_event_result = KbdCandidateOwned;
+    wl_touch_motion(NULL, NULL, 8, 41, wl_fixed_from_int(20),
+                    wl_fixed_from_int(20));
+    assert(mod_swipe.active);
+    assert(mod_swipe.trace_length == 1);
+    wl_touch_up(NULL, NULL, 0, 9, 41);
+    assert(mod_swipe.active);
+    assert(candidate_commits == 0);
+
+    reset();
+    popup_xdg_surface_configured = true;
+    next_key = &key;
+    cur_x = cur_y = 10;
+    candidate_event_result = KbdCandidateClaimed;
+    wl_pointer_button(NULL, NULL, 0, 7, 272, WL_POINTER_BUTTON_STATE_PRESSED);
+    assert(looked_up_key == NULL);
+    assert(key_presses == 0);
+    assert(candidate_clears == 0);
+
+    reset();
+    popup_xdg_surface_configured = true;
+    cur_press = true;
+    candidate_event_result = KbdCandidateOwned;
+    wl_pointer_motion(NULL, NULL, 7, wl_fixed_from_int(20),
+                      wl_fixed_from_int(20));
+    assert(key_motions == 0);
+
+    reset();
+    wl_pointer_leave(NULL, NULL, 0, NULL);
+    assert(candidate_clears == 0);
+
+    reset();
+    popup_xdg_surface_configured = true;
+    mod_swipe_enabled = false;
+    next_key = &key;
+    candidate_event_result = KbdCandidateMiss;
+    wl_touch_down(NULL, NULL, 0, 7, NULL, 42, wl_fixed_from_int(10),
+                  wl_fixed_from_int(100));
+    assert(candidate_clears == 1);
+    assert(looked_up_key == &key);
+    assert(key_presses == 1);
+}
+
+static void
+test_pointer_coordinates_and_button_ownership(void)
+{
+    struct key key = {.type = Code, .code = KEY_A};
+
+    reset();
+    wl_pointer_enter(NULL, NULL, 0, NULL, wl_fixed_from_int(17),
+                     wl_fixed_from_int(23));
+    assert(cur_x == 17 && cur_y == 23);
+    wl_pointer_leave(NULL, NULL, 0, NULL);
+    assert(cur_x == -1 && cur_y == -1);
+    assert(candidate_clears == 0);
+
+    reset();
+    popup_xdg_surface_configured = true;
+    mod_swipe_enabled = false;
+    cur_x = cur_y = 10;
+    candidate_event_result = KbdCandidateDismissed;
+    wl_pointer_button(NULL, NULL, 0, 1, 272, WL_POINTER_BUTTON_STATE_PRESSED);
+    assert(cur_button == 272);
+    assert(!cur_press);
+
+    candidate_event_result = KbdCandidateMiss;
+    next_key = &key;
+    wl_pointer_button(NULL, NULL, 0, 2, 273, WL_POINTER_BUTTON_STATE_PRESSED);
+    assert(looked_up_key == NULL);
+    assert(key_presses == 0);
+    wl_pointer_button(NULL, NULL, 0, 3, 272, WL_POINTER_BUTTON_STATE_RELEASED);
+    assert(cur_button == 0);
+    assert(key_releases == 0);
+
+    wl_pointer_button(NULL, NULL, 0, 4, 273, WL_POINTER_BUTTON_STATE_PRESSED);
+    assert(cur_button == 273);
+    assert(cur_press);
+    assert(key_presses == 1);
+    wl_pointer_button(NULL, NULL, 0, 5, 273, WL_POINTER_BUTTON_STATE_RELEASED);
+    assert(cur_button == 0);
+    assert(!cur_press);
+    assert(key_releases == 0);
+}
+
 int
 main(void)
 {
@@ -795,6 +970,8 @@ main(void)
     test_modified_punctuation_preserves_separator();
     test_glide_draw_order();
     test_non_code_key_cannot_extend_glide_trace();
+    test_candidate_routing_precedes_normal_input();
+    test_pointer_coordinates_and_button_ownership();
     test_cancel_active_input();
     test_lifecycle_boundaries();
     test_orientation_output_and_configure();

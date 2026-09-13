@@ -32,9 +32,12 @@ can be patched to add new features.
 *--mod-swipe*
 	Defer ordinary character keys until release. A tap types the character once;
 	a short upward/downward swipe emits Control/Alt plus it. On a primary Latin
-	layout, a continuing horizontal or diagonal path inserts one local dictionary
-	match by comparing its geometry to the current keys, so crossing neighboring
-	keys is normal. Space remains a tap. Punctuation does not glide, but retains
+	layout, a continuing horizontal or diagonal path inserts the best of up to
+	three ranked local dictionary matches by comparing its geometry to the current
+	keys, so crossing neighboring keys is normal. The matches cover the keyboard's
+	top row; tapping one replaces the emitted word and Space. Releasing outside
+	the pressed cell cancels selection, while returning before release restores it.
+	Space remains a tap. Punctuation does not glide, but retains
 	its tap and short Control/Alt modifier-swipe behavior; an unrecognized
 	qualified glide inserts nothing and shows =?= in the popup until the next
 	ordinary input.

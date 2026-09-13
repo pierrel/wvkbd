@@ -8,6 +8,7 @@
 #define GLIDE_MAX_TRACE 64
 #define GLIDE_MAX_WORD 24
 #define GLIDE_PATH_SAMPLES 32
+#define GLIDE_MAX_MATCHES 3
 
 struct glide_point {
     int32_t x;
@@ -25,8 +26,13 @@ struct glide_match {
     size_t length;
 };
 
-bool glide_recognize(const char *trace, const struct glide_point *points,
+struct glide_result {
+    size_t count;
+    struct glide_match matches[GLIDE_MAX_MATCHES];
+};
+
+void glide_recognize(const char *trace, const struct glide_point *points,
                      size_t length, const struct glide_geometry *geometry,
-                     struct glide_match *match);
+                     struct glide_result *result);
 
 #endif

@@ -36,19 +36,15 @@ nanoseconds(const struct timespec *start, const struct timespec *finish)
 int
 main(int argc, char **argv)
 {
-    static const char trace[] = "cccccccc"
-                                "ooooooo"
-                                "uuuuuuu"
-                                "nnnnnnn"
-                                "ttttttt"
-                                "rrrrrrr"
-                                "iiiiiii"
-                                "eeeeeee"
-                                "sssssss";
-    static const char expected[] = "countries";
+    static const char trace[] = "sssssssssssss"
+                                "uuuuuuuuuuuuu"
+                                "ccccccccccccc"
+                                "eeeeeeeeeeeee"
+                                "ssssssssssss";
+    static const char expected[] = "success";
     long long maximum = 0;
     long long maximum_ns = 0;
-    struct glide_match match;
+    struct glide_result result;
     struct glide_geometry current = geometry();
     struct glide_point points[GLIDE_MAX_TRACE];
 
@@ -64,10 +60,11 @@ main(int argc, char **argv)
     }
 
     if (argc == 1) {
-        return glide_recognize(trace, points, sizeof(trace) - 1, &current,
-                               &match) &&
-                       match.length == sizeof(expected) - 1 &&
-                       memcmp(match.word, expected, sizeof(expected) - 1) == 0
+        glide_recognize(trace, points, sizeof(trace) - 1, &current, &result);
+        return result.count > 0 &&
+                       result.matches[0].length == sizeof(expected) - 1 &&
+                       memcmp(result.matches[0].word, expected,
+                              sizeof(expected) - 1) == 0
                    ? 0
                    : 1;
     }
@@ -86,19 +83,17 @@ main(int argc, char **argv)
         return 2;
     }
     for (int i = 0; i < 10; i++) {
-        if (!glide_recognize(trace, points, sizeof(trace) - 1, &current,
-                             &match) ||
-            match.length != sizeof(expected) - 1 ||
-            memcmp(match.word, expected, sizeof(expected) - 1) != 0)
+        glide_recognize(trace, points, sizeof(trace) - 1, &current, &result);
+        if (!result.count || result.matches[0].length != sizeof(expected) - 1 ||
+            memcmp(result.matches[0].word, expected, sizeof(expected) - 1) != 0)
             return 1;
     }
     for (int i = 0; i < 1000; i++) {
         struct timespec start, finish;
         clock_gettime(CLOCK_MONOTONIC_RAW, &start);
-        if (!glide_recognize(trace, points, sizeof(trace) - 1, &current,
-                             &match) ||
-            match.length != sizeof(expected) - 1 ||
-            memcmp(match.word, expected, sizeof(expected) - 1) != 0)
+        glide_recognize(trace, points, sizeof(trace) - 1, &current, &result);
+        if (!result.count || result.matches[0].length != sizeof(expected) - 1 ||
+            memcmp(result.matches[0].word, expected, sizeof(expected) - 1) != 0)
             return 1;
         clock_gettime(CLOCK_MONOTONIC_RAW, &finish);
         long long elapsed = nanoseconds(&start, &finish);
