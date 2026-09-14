@@ -1,26 +1,24 @@
-# wordninja word list
+# FrequencyWords English frequency list
 
-`glide-words-en.h` is generated from `wordninja/wordninja_words.txt.gz` at
-keredson/wordninja commit `0421d148cd3d88e4f075aa9c703006f31809e9e5`.
-The compressed input is 538593 bytes with SHA-256
-`5b3c6c418fea7188b3919c47829ff94bc010f8336c74cbb929cc20d0c9d9e901`.
+`glide-words-en.h` is an adapted subset of
+`hermitdave/FrequencyWords/content/2018/en/en_50k.txt` at commit
+`525f9b560de45753a5ea01069454e72e9aa541c6`:
 
-Copyright (c) 2017 Derek Anderson
+FrequencyWords is maintained by Hermit Dave. The list is derived from the
+OpenSubtitles 2018 English corpus.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+https://github.com/hermitdave/FrequencyWords/blob/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/en/en_50k.txt
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+The exact source is 622749 bytes with SHA-256
+`5351ff405b1126ef555791dd4d9798a48e3e9a501a9fc481a9da957752cfb458`.
+FrequencyWords identifies the source corpus as OpenSubtitles 2018 and licenses
+the generated content under Creative Commons Attribution-ShareAlike 4.0
+International (CC BY-SA 4.0).
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+The wvkbd generator filters that list to the first 20000 unique lowercase ASCII
+words of length 2 through 24, preserves source frequency order within
+first/last-letter buckets, and emits a packed C header. This is a modification
+of the source data. The adapted data is distributed under the same CC BY-SA 4.0
+license. The complete license is in `LICENSES/CC-BY-SA-4.0.txt` and online at:
+
+https://creativecommons.org/licenses/by-sa/4.0/legalcode

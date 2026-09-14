@@ -77,6 +77,7 @@ static uint32_t anchor = ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM |
 static bool run_display = true;
 static int cur_x = -1, cur_y = -1;
 static bool cur_press = false;
+static uint32_t cur_button;
 static struct kbd keyboard;
 static uint32_t height, normal_height, landscape_height;
 static int rounding = DEFAULT_ROUNDING;
@@ -232,6 +233,10 @@ wl_touch_down(void *data, struct wl_touch *wl_touch, uint32_t serial,
     touch_y = wl_fixed_to_int(y);
 
     last_input_time = time;
+    if (kbd_candidate_touch_down(&keyboard, id, touch_x, touch_y) !=
+        KbdCandidateMiss) {
+        return;
+    }
     if (mod_swipe_enabled && mod_swipe.active) {
         return;
     }
@@ -278,6 +283,9 @@ wl_touch_up(void *data, struct wl_touch *wl_touch, uint32_t serial,
     struct mod_swipe_result result;
 
     last_input_time = time;
+    if (kbd_candidate_touch_up(&keyboard, id, time) != KbdCandidateMiss) {
+        return;
+    }
     if (mod_swipe_enabled) {
         if (!mod_swipe_finish(&mod_swipe, id, time, &result)) {
             return;
@@ -298,17 +306,19 @@ wl_touch_up(void *data, struct wl_touch *wl_touch, uint32_t serial,
             kbd_activate_key(&keyboard, result.key, result.time, Ctrl);
         } else if (result.action == ModSwipeAltCandidate) {
             kbd_activate_key(&keyboard, result.key, result.time, Alt);
+        } else if (result.action == ModSwipeControlAltCandidate) {
+            kbd_activate_key(&keyboard, result.key, result.time, Ctrl | Alt);
         } else if (result.action == ModSwipeGlide) {
-            struct glide_match match;
+            struct glide_result matches;
             struct glide_geometry geometry;
             bool emitted = false;
 
             if (!result.invalid && result.endpoint_mapped &&
-                kbd_glide_geometry(&keyboard, &geometry) &&
+                kbd_glide_geometry(&keyboard, &geometry)) {
                 glide_recognize(result.trace, result.trace_points,
-                                result.trace_length, &geometry, &match)) {
-                emitted = kbd_emit_ascii_word(&keyboard, match.word,
-                                              match.length, result.time);
+                                result.trace_length, &geometry, &matches);
+                emitted =
+                    kbd_commit_glide_result(&keyboard, &matches, result.time);
             }
             finish_deferred_gesture();
             if (!emitted) {
@@ -339,6 +349,10 @@ wl_touch_motion(void *data, struct wl_touch *wl_touch, uint32_t time,
     touch_y = wl_fixed_to_int(y);
 
     last_input_time = time;
+    if (kbd_candidate_touch_motion(&keyboard, id, touch_x, touch_y) !=
+        KbdCandidateMiss) {
+        return;
+    }
     if (mod_swipe_enabled) {
         enum mod_swipe_action previous;
         struct key *intersection;
@@ -377,6 +391,9 @@ wl_touch_motion(void *data, struct wl_touch *wl_touch, uint32_t time,
             } else if (previous != ModSwipeAltCandidate &&
                        mod_swipe.action == ModSwipeAltCandidate) {
                 kbd_show_key_feedback(&keyboard, mod_swipe.key, "M-");
+            } else if (previous != ModSwipeControlAltCandidate &&
+                       mod_swipe.action == ModSwipeControlAltCandidate) {
+                kbd_show_key_feedback(&keyboard, mod_swipe.key, "C-M-");
             } else if (previous != ModSwipeCancelled &&
                        mod_swipe.action == ModSwipeCancelled) {
                 kbd_clear_key_feedback(&keyboard, mod_swipe.key);
@@ -417,6 +434,9 @@ wl_pointer_enter(void *data, struct wl_pointer *wl_pointer, uint32_t serial,
                  struct wl_surface *surface, wl_fixed_t surface_x,
                  wl_fixed_t surface_y)
 {
+    cur_x = wl_fixed_to_int(surface_x);
+    cur_y = wl_fixed_to_int(surface_y);
+    kbd_candidate_pointer_motion(&keyboard, cur_x, cur_y);
 }
 
 void
@@ -424,6 +444,7 @@ wl_pointer_leave(void *data, struct wl_pointer *wl_pointer, uint32_t serial,
                  struct wl_surface *surface)
 {
     cur_x = cur_y = -1;
+    kbd_candidate_pointer_motion(&keyboard, cur_x, cur_y);
 }
 
 void
@@ -438,6 +459,10 @@ wl_pointer_motion(void *data, struct wl_pointer *wl_pointer, uint32_t time,
     cur_x = wl_fixed_to_int(surface_x);
     cur_y = wl_fixed_to_int(surface_y);
 
+    if (kbd_candidate_pointer_motion(&keyboard, cur_x, cur_y) !=
+        KbdCandidateMiss) {
+        return;
+    }
     if (mod_swipe.active) {
         return;
     }
@@ -454,19 +479,35 @@ wl_pointer_button(void *data, struct wl_pointer *wl_pointer, uint32_t serial,
     int32_t pointer_x = cur_x;
     int32_t pointer_y = cur_y;
     struct key *next_key;
+    enum kbd_candidate_event candidate_event;
 
     last_input_time = time;
     if (!popup_xdg_surface_configured) {
+        return;
+    }
+    candidate_event = kbd_candidate_pointer_button(&keyboard, button, pressed,
+                                                   pointer_x, pointer_y, time);
+    if (candidate_event != KbdCandidateMiss) {
+        if (pressed && candidate_event == KbdCandidateDismissed && !cur_button) {
+            cur_button = button;
+        }
         return;
     }
     if (mod_swipe.active) {
         return;
     }
 
-    if (!pressed && !cur_press) {
+    if (pressed && cur_button) {
+        return;
+    }
+    if (!pressed && button != cur_button) {
         return;
     }
     if (!pressed) {
+        cur_button = 0;
+        if (!cur_press) {
+            return;
+        }
         cur_press = false;
         kbd_release_key(&keyboard, time);
         return;
@@ -487,6 +528,7 @@ wl_pointer_button(void *data, struct wl_pointer *wl_pointer, uint32_t serial,
         return;
     }
     cur_press = true;
+    cur_button = button;
     cur_x = pointer_x;
     cur_y = pointer_y;
     if (next_key) {
@@ -898,7 +940,8 @@ usage(char *argv0)
     fprintf(stderr,
             "  -O          - Print intersected keys to standard output\n");
     fprintf(stderr,
-            "  --mod-swipe - Tap, Ctrl/Alt swipe, or glide Latin letters\n");
+            "  --mod-swipe - Tap, Ctrl/Alt/Ctrl+Alt swipes, or glide Latin "
+            "letters\n");
     fprintf(stderr, "  -H [int]    - Height in pixels\n");
     fprintf(stderr, "  -L [int]    - Landscape height in pixels\n");
     fprintf(stderr, "  -R [int]    - Rounding radius in pixels\n");
@@ -1015,7 +1058,9 @@ cancel_active_input(uint32_t time)
 {
     struct mod_swipe_result result;
 
+    kbd_clear_candidates(&keyboard);
     cur_press = false;
+    cur_button = 0;
     cur_x = cur_y = -1;
     if (mod_swipe_enabled && mod_swipe_cancel(&mod_swipe, &result)) {
         if (result.deferred) {

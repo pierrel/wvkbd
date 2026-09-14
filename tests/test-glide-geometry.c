@@ -154,15 +154,42 @@ expect_word(struct kbd *keyboard, const struct glide_geometry *geometry,
             const char *word, const char *expected_trace)
 {
     struct trace trace = trace_word(keyboard, word, false);
-    struct glide_match match;
+    struct glide_result result;
 
     assert(strcmp(trace.letters, expected_trace) == 0);
     assert(trace.action == ModSwipeGlide);
     assert(trace.endpoint_mapped);
-    assert(glide_recognize(trace.letters, trace.points, trace.length, geometry,
-                           &match));
-    assert(strlen(word) == match.length);
-    assert(memcmp(word, match.word, match.length) == 0);
+    glide_recognize(trace.letters, trace.points, trace.length, geometry,
+                    &result);
+    assert(result.count > 0);
+    bool found = false;
+
+    for (size_t i = 0; i < result.count; i++) {
+        if (strlen(word) == result.matches[i].length &&
+            memcmp(word, result.matches[i].word, result.matches[i].length) ==
+                0) {
+            found = true;
+        }
+    }
+    assert(found);
+}
+
+static void
+expect_there_ranking(struct kbd *keyboard,
+                     const struct glide_geometry *geometry)
+{
+    static const char *const expected[] = {"there", "tyre", "these"};
+    struct trace trace = trace_word(keyboard, "there", false);
+    struct glide_result result;
+
+    glide_recognize(trace.letters, trace.points, trace.length, geometry,
+                    &result);
+    assert(result.count == sizeof(expected) / sizeof(expected[0]));
+    for (size_t i = 0; i < result.count; i++) {
+        assert(result.matches[i].length == strlen(expected[i]));
+        assert(memcmp(result.matches[i].word, expected[i],
+                      result.matches[i].length) == 0);
+    }
 }
 
 static void
@@ -180,6 +207,7 @@ test_full_geometry(void)
     expect_word(&keyboard, &geometry, "test", "tresdrt");
     expect_word(&keyboard, &geometry, "area", "aserewsa");
     expect_word(&keyboard, &geometry, "phone", "poikjhjiokjnbhgfre");
+    expect_there_ranking(&keyboard, &geometry);
 }
 
 static void
@@ -187,13 +215,15 @@ test_rejects_bad_paths(struct kbd *keyboard,
                        const struct glide_geometry *geometry)
 {
     struct trace trace = trace_letters(keyboard, "hjbo");
-    struct glide_match match;
+    struct glide_result result;
 
-    assert(!glide_recognize(trace.letters, trace.points, trace.length, geometry,
-                            &match));
+    glide_recognize(trace.letters, trace.points, trace.length, geometry,
+                    &result);
+    assert(result.count == 0);
     trace = trace_word(keyboard, "hro", false);
-    assert(!glide_recognize(trace.letters, trace.points, trace.length, geometry,
-                            &match));
+    glide_recognize(trace.letters, trace.points, trace.length, geometry,
+                    &result);
+    assert(result.count == 0);
 }
 
 static void
@@ -201,11 +231,12 @@ test_recognizer_accepts_trace_before_endpoint_gate(
     struct kbd *keyboard, const struct glide_geometry *geometry)
 {
     struct trace trace = trace_word(keyboard, "hello", true);
-    struct glide_match match;
+    struct glide_result result;
 
     assert(!trace.endpoint_mapped);
-    assert(glide_recognize(trace.letters, trace.points, trace.length, geometry,
-                           &match));
+    glide_recognize(trace.letters, trace.points, trace.length, geometry,
+                    &result);
+    assert(result.count > 0);
 }
 
 int

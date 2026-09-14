@@ -23,9 +23,16 @@
 #endif
 #include KEYMAP
 
+static void
+kbd_reset_candidates(struct kbd *kb)
+{
+    kb->candidates = (struct kbd_candidate_session){0};
+}
+
 void
 kbd_switch_layout(struct kbd *kb, struct layout *l, size_t layer_index)
 {
+    kbd_reset_candidates(kb);
     kb->prevlayout = kb->layout;
     if ((kb->layer_index != kb->last_abc_index) && (kb->layout->abc)) {
         kb->last_abc_layout = kb->layout;
@@ -281,7 +288,8 @@ void
 kbd_unpress_key(struct kbd *kb, uint32_t time)
 {
     bool unlatch_shift, unlatch_ctrl, unlatch_alt, unlatch_super, unlatch_altgr;
-    unlatch_shift = unlatch_ctrl = unlatch_alt = unlatch_super = unlatch_altgr = false;
+    unlatch_shift = unlatch_ctrl = unlatch_alt = unlatch_super = unlatch_altgr =
+        false;
 
     if (kb->last_press) {
         unlatch_shift = (kb->mods & Shift) == Shift;
@@ -290,13 +298,19 @@ kbd_unpress_key(struct kbd *kb, uint32_t time)
         unlatch_super = (kb->mods & Super) == Super;
         unlatch_altgr = (kb->mods & AltGr) == AltGr;
 
-        if (unlatch_shift) kb->mods ^= Shift;
-        if (unlatch_ctrl) kb->mods ^= Ctrl;
-        if (unlatch_alt) kb->mods ^= Alt;
-        if (unlatch_super) kb->mods ^= Super;
-        if (unlatch_altgr) kb->mods ^= AltGr;
+        if (unlatch_shift)
+            kb->mods ^= Shift;
+        if (unlatch_ctrl)
+            kb->mods ^= Ctrl;
+        if (unlatch_alt)
+            kb->mods ^= Alt;
+        if (unlatch_super)
+            kb->mods ^= Super;
+        if (unlatch_altgr)
+            kb->mods ^= AltGr;
 
-        if (unlatch_shift||unlatch_ctrl||unlatch_alt||unlatch_super||unlatch_altgr) {
+        if (unlatch_shift || unlatch_ctrl || unlatch_alt || unlatch_super ||
+            unlatch_altgr) {
             zwp_virtual_keyboard_v1_modifiers(kb->vkbd, kb->mods, 0, 0, 0);
         }
 
@@ -318,7 +332,8 @@ kbd_unpress_key(struct kbd *kb, uint32_t time)
         if (kb->compose >= 2) {
             kb->compose = 0;
             kbd_switch_layout(kb, kb->last_abc_layout, kb->last_abc_index);
-        } else if (unlatch_shift||unlatch_ctrl||unlatch_alt||unlatch_super||unlatch_altgr) {
+        } else if (unlatch_shift || unlatch_ctrl || unlatch_alt ||
+                   unlatch_super || unlatch_altgr) {
             kbd_draw_layout(kb);
         } else {
             kbd_draw_key(kb, kb->last_press, Unpress);
@@ -553,8 +568,9 @@ kbd_print_key_stdout(struct kbd *kb, struct key *k)
     }
 
     if (!handled) {
-        if ((kb->mods & Shift) || 
-            ((kb->mods & CapsLock) & (strlen(k->label) == 1 && isalpha(k->label[0]))))
+        if ((kb->mods & Shift) ||
+            ((kb->mods & CapsLock) &
+             (strlen(k->label) == 1 && isalpha(k->label[0]))))
             printf("%s", k->shift_label);
         else if (!(kb->mods & Ctrl) && !(kb->mods & Alt) && !(kb->mods & Super))
             printf("%s", k->label);
@@ -581,8 +597,8 @@ kbd_key_label(struct kbd *kb, struct key *k)
     return ((kb->mods & Shift) ||
             ((kb->mods & CapsLock) && strlen(k->label) == 1 &&
              isalpha(k->label[0])))
-             ? k->shift_label
-             : k->label;
+               ? k->shift_label
+               : k->label;
 }
 
 static void
@@ -597,8 +613,8 @@ kbd_draw_key_label(struct kbd *kb, struct key *k, enum key_draw_type type,
     switch (type) {
     case None:
     case Unpress:
-        draw_inset(kb->surf, k->x, k->y, k->w, k->h, KBD_KEY_BORDER,
-                   scheme->fg, scheme->rounding);
+        draw_inset(kb->surf, k->x, k->y, k->w, k->h, KBD_KEY_BORDER, scheme->fg,
+                   scheme->rounding);
         break;
     case Press:
         draw_inset(kb->surf, k->x, k->y, k->w, k->h, KBD_KEY_BORDER,
@@ -649,15 +665,13 @@ kbd_show_popup_feedback(struct kbd *kb, struct key *k, const char *label)
     kb->last_popup_y = kb->h + k->y - k->h;
     kb->last_popup_w = k->w;
     kb->last_popup_h = k->h;
-    drw_fill_rectangle(kb->popup_surf, scheme->bg, k->x,
-                       kb->last_popup_y, k->w, k->h, scheme->rounding);
+    drw_fill_rectangle(kb->popup_surf, scheme->bg, k->x, kb->last_popup_y, k->w,
+                       k->h, scheme->rounding);
     draw_inset(kb->popup_surf, k->x, kb->last_popup_y, k->w, k->h,
                KBD_KEY_BORDER, scheme->high, scheme->rounding);
-    drw_draw_text(kb->popup_surf, scheme->text, k->x, kb->last_popup_y,
-                  k->w, k->h, KBD_KEY_BORDER, label,
-                  scheme->font_description);
-    wl_surface_damage(kb->popup_surf->surf, k->x, kb->last_popup_y, k->w,
-                      k->h);
+    drw_draw_text(kb->popup_surf, scheme->text, k->x, kb->last_popup_y, k->w,
+                  k->h, KBD_KEY_BORDER, label, scheme->font_description);
+    wl_surface_damage(kb->popup_surf->surf, k->x, kb->last_popup_y, k->w, k->h);
 }
 
 void
@@ -735,15 +749,11 @@ kbd_key_changes_interpretation(const struct kbd *kb, const struct key *key)
            key->type == BackLayer || key->type == Copy;
 }
 
-bool
-kbd_emit_ascii_word(struct kbd *kb, const char *word, size_t length,
-                    uint32_t time)
+static bool
+kbd_ascii_word_codes(const char *word, size_t length,
+                     uint32_t codes[GLIDE_MAX_WORD])
 {
-    uint32_t codes[GLIDE_MAX_WORD];
-    char printed[GLIDE_MAX_WORD];
-    bool shifted;
-
-    if (!word || length == 0 || length > sizeof(codes) / sizeof(codes[0])) {
+    if (!word || length == 0 || length > GLIDE_MAX_WORD) {
         return false;
     }
     for (size_t i = 0; i < length; i++) {
@@ -751,16 +761,39 @@ kbd_emit_ascii_word(struct kbd *kb, const char *word, size_t length,
             return false;
         }
     }
-    shifted = (kb->mods & Shift) != 0;
-    zwp_virtual_keyboard_v1_modifiers(kb->vkbd, kb->mods, 0, 0, 0);
+    return true;
+}
+
+static char
+kbd_case_letter(char letter, size_t index, uint8_t case_mods)
+{
+    bool uppercase =
+        (index == 0 && (case_mods & Shift)) != ((case_mods & CapsLock) != 0);
+
+    return uppercase ? toupper((unsigned char)letter) : letter;
+}
+
+static void
+kbd_emit_ascii_word_case(struct kbd *kb, const char *word, size_t length,
+                         const uint32_t codes[GLIDE_MAX_WORD], uint32_t time,
+                         uint8_t case_mods, bool consume_live_shift)
+{
+    char printed[GLIDE_MAX_WORD];
+    uint8_t emitted_mods = case_mods;
+    bool shifted = (case_mods & Shift) != 0;
+
+    zwp_virtual_keyboard_v1_modifiers(kb->vkbd, emitted_mods, 0, 0, 0);
     for (size_t i = 0; i < length; i++) {
         zwp_virtual_keyboard_v1_key(kb->vkbd, time, codes[i],
                                     WL_KEYBOARD_KEY_STATE_PRESSED);
         zwp_virtual_keyboard_v1_key(kb->vkbd, time, codes[i],
                                     WL_KEYBOARD_KEY_STATE_RELEASED);
         if (i == 0 && shifted) {
-            kb->mods &= ~Shift;
-            zwp_virtual_keyboard_v1_modifiers(kb->vkbd, kb->mods, 0, 0, 0);
+            emitted_mods &= ~Shift;
+            if (consume_live_shift) {
+                kb->mods &= ~Shift;
+            }
+            zwp_virtual_keyboard_v1_modifiers(kb->vkbd, emitted_mods, 0, 0, 0);
         }
     }
     zwp_virtual_keyboard_v1_key(kb->vkbd, time, KEY_SPACE,
@@ -769,16 +802,16 @@ kbd_emit_ascii_word(struct kbd *kb, const char *word, size_t length,
                                 WL_KEYBOARD_KEY_STATE_RELEASED);
     if (kb->print) {
         for (size_t i = 0; i < length; i++) {
-            bool uppercase =
-                (i == 0 && shifted) != ((kb->mods & CapsLock) != 0);
-            printed[i] = uppercase ? toupper((unsigned char)word[i]) : word[i];
+            printed[i] = kbd_case_letter(word[i], i, case_mods);
         }
         fwrite(printed, 1, length, stdout);
         fputc(' ', stdout);
         fflush(stdout);
     }
+    if (!consume_live_shift && emitted_mods != kb->mods) {
+        zwp_virtual_keyboard_v1_modifiers(kb->vkbd, kb->mods, 0, 0, 0);
+    }
     kb->glide_undo_count = (uint8_t)(length + 1);
-    return true;
 }
 
 void
@@ -788,7 +821,8 @@ kbd_clear_glide_undo(struct kbd *kb)
 }
 
 static void
-kbd_emit_backspaces(struct kbd *kb, uint8_t count, uint32_t time)
+kbd_emit_backspaces(struct kbd *kb, uint8_t count, uint32_t time,
+                    bool restore_mods)
 {
     zwp_virtual_keyboard_v1_modifiers(kb->vkbd, 0, 0, 0, 0);
     for (uint8_t i = 0; i < count; i++) {
@@ -803,9 +837,212 @@ kbd_emit_backspaces(struct kbd *kb, uint8_t count, uint32_t time)
         }
         fflush(stdout);
     }
-    if (kb->mods) {
+    if (restore_mods && kb->mods) {
         zwp_virtual_keyboard_v1_modifiers(kb->vkbd, kb->mods, 0, 0, 0);
     }
+}
+
+static void
+kbd_redraw_candidates(struct kbd *kb)
+{
+    kbd_draw_layout(kb);
+    drwsurf_flip(kb->surf);
+}
+
+void
+kbd_clear_candidates(struct kbd *kb)
+{
+    if (!kb->candidates.count) {
+        return;
+    }
+    kbd_reset_candidates(kb);
+    kbd_redraw_candidates(kb);
+}
+
+bool
+kbd_commit_glide_result(struct kbd *kb, const struct glide_result *result,
+                        uint32_t time)
+{
+    uint32_t codes[GLIDE_MAX_MATCHES][GLIDE_MAX_WORD];
+    uint8_t case_mods;
+
+    if (!result || result->count == 0 || result->count > GLIDE_MAX_MATCHES) {
+        return false;
+    }
+    for (size_t i = 0; i < result->count; i++) {
+        if (!kbd_ascii_word_codes(result->matches[i].word,
+                                  result->matches[i].length, codes[i])) {
+            return false;
+        }
+    }
+    case_mods = kb->mods & (Shift | CapsLock);
+    kbd_emit_ascii_word_case(kb, result->matches[0].word,
+                             result->matches[0].length, codes[0], time,
+                             case_mods, true);
+    kbd_reset_candidates(kb);
+    kb->candidates.count = result->count;
+    memcpy(kb->candidates.matches, result->matches,
+           result->count * sizeof(result->matches[0]));
+    kb->candidates.case_mods = case_mods;
+    return true;
+}
+
+static uint32_t
+kbd_candidate_boundary(const struct kbd *kb, size_t slot)
+{
+    return (uint32_t)((uint64_t)slot * kb->w / GLIDE_MAX_MATCHES);
+}
+
+static int
+kbd_candidate_slot(const struct kbd *kb, int32_t x, int32_t y)
+{
+
+    if (!kb->candidates.count || !kb->layout || kb->w == 0 || x < 0 || y < 0 ||
+        (uint32_t)x >= kb->w || (uint32_t)y >= kb->layout->keyheight) {
+        return -1;
+    }
+    for (size_t slot = 1; slot < GLIDE_MAX_MATCHES; slot++) {
+        if ((uint32_t)x < kbd_candidate_boundary(kb, slot)) {
+            return (int)slot - 1;
+        }
+    }
+    return GLIDE_MAX_MATCHES - 1;
+}
+
+static enum kbd_candidate_event
+kbd_candidate_begin(struct kbd *kb, enum kbd_candidate_owner owner,
+                    int32_t touch_id, uint32_t pointer_button, int32_t x,
+                    int32_t y)
+{
+    int slot;
+
+    if (!kb->candidates.count) {
+        return KbdCandidateMiss;
+    }
+    if (kb->candidates.owner != KbdCandidateOwnerNone) {
+        return KbdCandidateOwned;
+    }
+    slot = kbd_candidate_slot(kb, x, y);
+    if (slot < 0) {
+        return KbdCandidateMiss;
+    }
+    if ((size_t)slot >= kb->candidates.count) {
+        kbd_reset_candidates(kb);
+        kbd_redraw_candidates(kb);
+        return KbdCandidateDismissed;
+    }
+    kb->candidates.owner = owner;
+    kb->candidates.touch_id = touch_id;
+    kb->candidates.pointer_button = pointer_button;
+    kb->candidates.pressed_slot = (size_t)slot;
+    kb->candidates.pressed_inside = true;
+    kbd_redraw_candidates(kb);
+    return KbdCandidateClaimed;
+}
+
+static bool
+kbd_candidate_is_owner(const struct kbd *kb, enum kbd_candidate_owner owner,
+                       int32_t touch_id, uint32_t pointer_button)
+{
+    return kb->candidates.owner == owner &&
+           (owner != KbdCandidateOwnerTouch ||
+            kb->candidates.touch_id == touch_id) &&
+           (owner != KbdCandidateOwnerPointer ||
+            kb->candidates.pointer_button == pointer_button);
+}
+
+static enum kbd_candidate_event
+kbd_candidate_move(struct kbd *kb, enum kbd_candidate_owner owner,
+                   int32_t touch_id, int32_t x, int32_t y)
+{
+    bool inside;
+
+    if (!kb->candidates.count ||
+        kb->candidates.owner == KbdCandidateOwnerNone) {
+        return KbdCandidateMiss;
+    }
+    if (!kbd_candidate_is_owner(kb, owner, touch_id,
+                                kb->candidates.pointer_button)) {
+        return KbdCandidateOwned;
+    }
+    inside = kbd_candidate_slot(kb, x, y) == (int)kb->candidates.pressed_slot;
+    if (inside != kb->candidates.pressed_inside) {
+        kb->candidates.pressed_inside = inside;
+        kbd_redraw_candidates(kb);
+    }
+    return KbdCandidateOwned;
+}
+
+static enum kbd_candidate_event
+kbd_candidate_release(struct kbd *kb, enum kbd_candidate_owner owner,
+                      int32_t touch_id, uint32_t pointer_button, int32_t x,
+                      int32_t y, bool use_coordinates, uint32_t time)
+{
+    struct glide_match selected;
+    uint32_t codes[GLIDE_MAX_WORD];
+    uint8_t case_mods;
+    uint8_t undo_count;
+    bool commit;
+
+    if (!kb->candidates.count ||
+        kb->candidates.owner == KbdCandidateOwnerNone) {
+        return KbdCandidateMiss;
+    }
+    if (!kbd_candidate_is_owner(kb, owner, touch_id, pointer_button)) {
+        return KbdCandidateOwned;
+    }
+    commit = use_coordinates ? kbd_candidate_slot(kb, x, y) ==
+                                   (int)kb->candidates.pressed_slot
+                             : kb->candidates.pressed_inside;
+    selected = kb->candidates.matches[kb->candidates.pressed_slot];
+    case_mods = kb->candidates.case_mods;
+    undo_count = kb->glide_undo_count;
+    kbd_reset_candidates(kb);
+    if (commit && kbd_ascii_word_codes(selected.word, selected.length, codes)) {
+        kbd_clear_glide_undo(kb);
+        kbd_emit_backspaces(kb, undo_count, time, false);
+        kbd_emit_ascii_word_case(kb, selected.word, selected.length, codes,
+                                 time, case_mods, false);
+    }
+    kbd_redraw_candidates(kb);
+    return KbdCandidateOwned;
+}
+
+enum kbd_candidate_event
+kbd_candidate_touch_down(struct kbd *kb, int32_t id, int32_t x, int32_t y)
+{
+    return kbd_candidate_begin(kb, KbdCandidateOwnerTouch, id, 0, x, y);
+}
+
+enum kbd_candidate_event
+kbd_candidate_touch_motion(struct kbd *kb, int32_t id, int32_t x, int32_t y)
+{
+    return kbd_candidate_move(kb, KbdCandidateOwnerTouch, id, x, y);
+}
+
+enum kbd_candidate_event
+kbd_candidate_touch_up(struct kbd *kb, int32_t id, uint32_t time)
+{
+    return kbd_candidate_release(kb, KbdCandidateOwnerTouch, id, 0, 0, 0, false,
+                                 time);
+}
+
+enum kbd_candidate_event
+kbd_candidate_pointer_button(struct kbd *kb, uint32_t button, bool pressed,
+                             int32_t x, int32_t y, uint32_t time)
+{
+    if (pressed) {
+        return kbd_candidate_begin(kb, KbdCandidateOwnerPointer, 0, button, x,
+                                   y);
+    }
+    return kbd_candidate_release(kb, KbdCandidateOwnerPointer, 0, button, x, y,
+                                 true, time);
+}
+
+enum kbd_candidate_event
+kbd_candidate_pointer_motion(struct kbd *kb, int32_t x, int32_t y)
+{
+    return kbd_candidate_move(kb, KbdCandidateOwnerPointer, 0, x, y);
 }
 
 static bool
@@ -846,7 +1083,7 @@ kbd_begin_glide_followup(struct kbd *kb, const struct key *key, uint32_t time)
     kbd_clear_glide_undo(kb);
     if (key->code == KEY_BACKSPACE && key->code_mod == NoMod &&
         !(kb->mods & Shift)) {
-        kbd_emit_backspaces(kb, count, time);
+        kbd_emit_backspaces(kb, count, time, true);
         return true;
     }
     if (key->code == KEY_SPACE && key->code_mod == NoMod &&
@@ -854,9 +1091,45 @@ kbd_begin_glide_followup(struct kbd *kb, const struct key *key, uint32_t time)
         return true;
     }
     if (kbd_is_word_punctuation(kb, key)) {
-        kbd_emit_backspaces(kb, 1, time);
+        kbd_emit_backspaces(kb, 1, time, true);
     }
     return false;
+}
+
+static void
+kbd_draw_candidates(struct kbd *kb)
+{
+    struct clr_scheme *scheme = &kb->schemes[0];
+    uint32_t height = kb->layout->keyheight;
+
+    if (!kb->candidates.count || !height) {
+        return;
+    }
+    for (size_t i = 0; i < GLIDE_MAX_MATCHES; i++) {
+        uint32_t x = kbd_candidate_boundary(kb, i);
+        uint32_t end = kbd_candidate_boundary(kb, i + 1);
+        uint32_t width = end - x;
+        bool highlighted =
+            i == 0 ||
+            (kb->candidates.owner != KbdCandidateOwnerNone &&
+             kb->candidates.pressed_slot == i && kb->candidates.pressed_inside);
+        Color color = highlighted ? scheme->high : scheme->fg;
+
+        draw_inset(kb->surf, x, 0, width, height, KBD_KEY_BORDER, color,
+                   scheme->rounding);
+        if (i < kb->candidates.count) {
+            char label[GLIDE_MAX_WORD];
+            const struct glide_match *match = &kb->candidates.matches[i];
+
+            for (size_t j = 0; j < match->length; j++) {
+                label[j] = kbd_case_letter(match->word[j], j,
+                                           kb->candidates.case_mods);
+            }
+            drw_draw_text_bounded(kb->surf, scheme->text, x, 0, width, height,
+                                  KBD_KEY_BORDER, label, (int)match->length,
+                                  scheme->font_description);
+        }
+    }
 }
 
 void
@@ -882,6 +1155,7 @@ kbd_draw_layout(struct kbd *kb)
         }
         next_key++;
     }
+    kbd_draw_candidates(kb);
     wl_surface_damage(d->surf, 0, 0, kb->w, kb->h);
 }
 
@@ -891,6 +1165,7 @@ kbd_resize(struct kbd *kb, struct layout *layouts, uint8_t layoutcount)
     fprintf(stderr, "Resize %dx%d %f, %d layouts\n", kb->w, kb->h, kb->scale,
             layoutcount);
 
+    kbd_reset_candidates(kb);
     drwsurf_resize(kb->surf, kb->w, kb->h, kb->scale);
     drwsurf_resize(kb->popup_surf, kb->w, kb->h * 2, kb->scale);
     for (int i = 0; i < layoutcount; i++) {

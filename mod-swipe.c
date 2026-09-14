@@ -166,6 +166,9 @@ mod_swipe_update(struct mod_swipe_state *state, int32_t touch_id, int32_t x,
         if (vertical >= state->threshold && vertical >= horizontal * 2) {
             state->action =
                 dy < 0 ? ModSwipeControlCandidate : ModSwipeAltCandidate;
+        } else if (horizontal >= state->threshold && dx > 0 &&
+                   horizontal >= vertical * 2) {
+            state->action = ModSwipeControlAltCandidate;
         } else {
             state->action = state->glide_capable ? ModSwipeGlideCandidate
                                                  : ModSwipeCancelled;

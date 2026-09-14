@@ -81,22 +81,31 @@ Another output mode, `-O` will let the keyboard output keys which are swiped ove
 
 `--mod-swipe` makes ordinary character keys emit on release: release in place
 types the character once, a short upward swipe emits Ctrl plus the character,
-and a short downward swipe emits Alt plus the character. On a primary Latin
-layout, a continuing horizontal or diagonal path can instead insert one bounded
-local dictionary match. It compares the motion path to the current key geometry,
-so crossing neighboring keys while tracing a word is normal. The popup clears
-until that path qualifies, then the crossed keys are highlighted. Space remains
-a tap. Punctuation does not glide, but retains its tap and short Ctrl/Alt
-modifier-swipe behavior. An unrecognized qualified glide inserts nothing and
-shows `?` in the popup; the next ordinary input clears it. The threshold is the
-floor of 40% of the key height, with a 12-pixel minimum, and vertical movement
-must be at least twice the horizontal movement for the short Ctrl/Alt result.
-Each recognized word emits one trailing Space. Before another accepted keyboard
-input, a plain Backspace retracts that word and its Space. An explicit Space is
-coalesced with the emitted separator, while ordinary punctuation replaces it,
-so both produce normal text. Tapping Shift preserves the pending separator
-decision for the following key. External focus, cursor, and hardware edits are
-not observable.
+short downward emits Alt plus it, and short predominantly rightward emits Ctrl
+and Alt together (Emacs C-M-) plus it. On a primary Latin layout, a continuing
+horizontal or diagonal path can instead insert the best of up to three ranked
+local dictionary matches. A rightward modifier candidate can become a glide only
+after the same two-letter, travel, horizontal-span, and trace requirements. It
+compares the motion path to the current key geometry, so crossing neighboring
+keys while tracing a word is normal. Before glide takeover, a rightward modifier
+candidate shows `C-M-` in the popup. During glide tracing the popup is empty and
+the crossed keys are highlighted. After insertion, the ranked matches cover the
+keyboard's top row. Tap one to replace the emitted word and trailing Space in one
+keyboard-owned transaction. A press highlights its candidate; releasing outside
+that cell cancels selection, while returning before release restores it. Tapping
+an unused candidate cell dismisses the strip. The separate popup remains
+input-empty. Space remains a tap. Punctuation does not glide, but retains its tap
+and short Ctrl/Alt/Ctrl+Alt modifier-swipe behavior. An unrecognized qualified
+glide inserts nothing and shows `?` in the popup; the next ordinary input clears
+it. The gesture-takeover threshold is the floor of 40% of the key height, with a
+12-pixel minimum. Upward and downward gestures require at least twice as much
+vertical as horizontal movement; Ctrl+Alt requires positive horizontal movement
+at least twice the absolute vertical movement. Each recognized word emits one
+trailing Space. Before another accepted keyboard input, a plain Backspace
+retracts that word and its Space. An explicit Space is coalesced with the emitted
+separator, while ordinary punctuation replaces it, so both produce normal text.
+Tapping Shift preserves the pending separator decision for the following key.
+External focus, cursor, and hardware edits are not observable.
 
 This mode deliberately trades hold-to-repeat for modifier gestures on character
 keys. It is incompatible with the `-O` swipe-word output mode. Compose, modifier,

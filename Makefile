@@ -104,10 +104,14 @@ test-dictionary:
 
 test-sanitize:
 	$(MAKE) clean
-	$(MAKE) TEST_CFLAGS='-std=c11 -Wall -Wextra -Werror -I. -g -fsanitize=address,undefined' TEST_LDFLAGS='-fsanitize=address,undefined' tests/test-mod-swipe tests/test-glide tests/test-glide-geometry
+	$(MAKE) TEST_CFLAGS='-std=c11 -Wall -Wextra -Werror -I. -g -fsanitize=address,undefined -fno-sanitize-recover=undefined' TEST_LDFLAGS='-fsanitize=address,undefined' tests/test-mod-swipe tests/test-glide tests/test-keyboard-glide tests/test-glide-geometry tests/test-main-glide-release
 	ASAN_OPTIONS=detect_leaks=1 ./tests/test-mod-swipe
 	ASAN_OPTIONS=detect_leaks=1 ./tests/test-glide
+	# Pango/fontconfig retain process-global caches at exit, so leak detection is
+	# disabled for this whole harness; address and undefined checks remain active.
+	ASAN_OPTIONS=detect_leaks=0 ./tests/test-keyboard-glide
 	ASAN_OPTIONS=detect_leaks=1 ./tests/test-glide-geometry
+	ASAN_OPTIONS=detect_leaks=1 ./tests/test-main-glide-release
 
 tests/fuzz-glide: config.h tests/fuzz-glide.c glide.c glide.h glide-words-en.h
 	clang -std=c11 -Wall -Wextra -Werror -I. -g -fsanitize=fuzzer,address,undefined -o $@ tests/fuzz-glide.c glide.c

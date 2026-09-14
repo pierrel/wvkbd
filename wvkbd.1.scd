@@ -31,21 +31,31 @@ can be patched to add new features.
 
 *--mod-swipe*
 	Defer ordinary character keys until release. A tap types the character once;
-	a short upward/downward swipe emits Control/Alt plus it. On a primary Latin
-	layout, a continuing horizontal or diagonal path inserts one local dictionary
-	match by comparing its geometry to the current keys, so crossing neighboring
-	keys is normal. Space remains a tap. Punctuation does not glide, but retains
-	its tap and short Control/Alt modifier-swipe behavior; an unrecognized
-	qualified glide inserts nothing and shows =?= in the popup until the next
-	ordinary input.
+	a short upward/downward swipe emits Control/Alt plus it, while a short
+	predominantly rightward swipe emits Control and Alt together (Emacs C-M-)
+	plus it. On a primary Latin layout, a continuing horizontal or diagonal path
+	inserts the best of up to three ranked local dictionary matches by comparing
+	its geometry to the current keys. A rightward modifier candidate can become a
+	glide only after the same two-letter, travel, horizontal-span, and trace
+	requirements, so crossing neighboring keys is normal. Before glide takeover,
+	the rightward candidate shows =C-M-= in the popup; during glide tracing the
+	popup is empty and crossed keys are highlighted. The matches cover the
+	keyboard's top row; tapping one replaces the emitted word and Space. Releasing
+	outside the pressed cell cancels selection, while returning before release
+	restores it. Tapping an unused candidate cell dismisses the strip. The separate
+	popup remains input-empty.
+	Space remains a tap. Punctuation does not glide, but retains its tap and short
+	Control/Alt/Control+Alt modifier-swipe behavior; an unrecognized qualified
+	glide inserts nothing and shows =?= in the popup until the next ordinary input.
 	A recognized word emits one trailing Space. Before another accepted keyboard
 	input, plain Backspace retracts that word and its Space. An explicit Space is
 	coalesced with the emitted separator, while ordinary punctuation replaces it.
 	External cursor or hardware edits are not observable.
-	The short vertical gesture requires the floor of 40% of the key height, with
-	a 12-pixel minimum, and twice as much vertical as horizontal movement. This
-	option disables hold repeat for character keys and cannot be combined with
-	*-O*.
+	The gesture threshold is the floor of 40% of the key height, with a 12-pixel
+	minimum. Upward/downward gestures require twice as much vertical as horizontal
+	movement; Control+Alt requires positive horizontal movement at least twice the
+	absolute vertical movement. This option disables hold repeat for character
+	keys and cannot be combined with *-O*.
 
 *-l* _layers_
 	comma separated list of layers in vertical/portrait mode.

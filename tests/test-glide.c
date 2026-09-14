@@ -21,15 +21,37 @@ expect(const char *trace, const char *word)
 {
     struct glide_geometry current = geometry();
     struct glide_point points[GLIDE_MAX_TRACE];
-    struct glide_match match;
+    struct glide_result result;
     size_t length = strlen(trace);
 
     for (size_t i = 0; i < length; i++) {
         points[i] = current.letters[trace[i] - 'a'];
     }
-    assert(glide_recognize(trace, points, length, &current, &match));
-    assert(match.length == strlen(word));
-    assert(memcmp(match.word, word, match.length) == 0);
+    glide_recognize(trace, points, length, &current, &result);
+    assert(result.count > 0 && result.count <= GLIDE_MAX_MATCHES);
+    assert(result.matches[0].length == strlen(word));
+    assert(memcmp(result.matches[0].word, word, result.matches[0].length) == 0);
+}
+
+static void
+expect_ranked(const char *trace, const char *const *words, size_t count)
+{
+    struct glide_geometry current = geometry();
+    struct glide_point points[GLIDE_MAX_TRACE];
+    struct glide_result result;
+    size_t length = strlen(trace);
+
+    current.key_height = 1;
+    for (size_t i = 0; i < length; i++) {
+        points[i] = current.letters[trace[i] - 'a'];
+    }
+    glide_recognize(trace, points, length, &current, &result);
+    assert(result.count == count);
+    for (size_t i = 0; i < count; i++) {
+        assert(result.matches[i].length == strlen(words[i]));
+        assert(memcmp(result.matches[i].word, words[i],
+                      result.matches[i].length) == 0);
+    }
 }
 
 int
@@ -43,23 +65,33 @@ main(void)
     char too_long[GLIDE_MAX_TRACE + 1];
     struct glide_geometry current = geometry();
     struct glide_point points[GLIDE_MAX_TRACE] = {0};
-    struct glide_match match;
+    struct glide_result result;
+    static const char *const one[] = {"hello"};
+    static const char *const two[] = {"to", "too"};
+    static const char *const three[] = {"of", "off", "oof"};
 
     expect("helo", "hello");
     memset(too_long, 'a', sizeof(too_long));
     assert(sizeof(longest_trace) - 1 == GLIDE_MAX_TRACE);
     expect(longest_trace, "hello");
     expect("area", "area");
-    assert(!glide_recognize("", points, 0, &current, &match));
-    assert(!glide_recognize("a-", points, 2, &current, &match));
-    assert(!glide_recognize(malformed, points, sizeof(malformed), &current,
-                            &match));
-    assert(!glide_recognize(too_long, points, sizeof(too_long), &current,
-                            &match));
+    expect_ranked("helo", one, 1);
+    expect_ranked("to", two, 2);
+    expect_ranked("of", three, 3);
+    glide_recognize("", points, 0, &current, &result);
+    assert(result.count == 0);
+    glide_recognize("a-", points, 2, &current, &result);
+    assert(result.count == 0);
+    glide_recognize(malformed, points, sizeof(malformed), &current, &result);
+    assert(result.count == 0);
+    glide_recognize(too_long, points, sizeof(too_long), &current, &result);
+    assert(result.count == 0);
     current.complete = false;
-    assert(!glide_recognize("helo", points, 4, &current, &match));
+    glide_recognize("helo", points, 4, &current, &result);
+    assert(result.count == 0);
     current.complete = true;
-    assert(!glide_recognize("helo", points, 4, &current, &match));
+    glide_recognize("helo", points, 4, &current, &result);
+    assert(result.count == 0);
     puts("glide recognizer tests passed");
     return 0;
 }

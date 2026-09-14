@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -9,7 +10,7 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     static const char valid_trace[] = "helo";
     struct glide_geometry geometry = {0};
     struct glide_point points[GLIDE_MAX_TRACE];
-    struct glide_match match;
+    struct glide_result result;
     const char *trace = (const char *)data;
     size_t trace_length = size;
 
@@ -21,15 +22,15 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         for (size_t j = 0; size && j < 4; j++) {
             value = (value << 8) | data[(i + j) % size];
         }
-        geometry.letters[i] = (struct glide_point){.x = (int32_t)value,
-                                                    .y = (int32_t)~value};
+        geometry.letters[i] =
+            (struct glide_point){.x = (int32_t)value, .y = (int32_t)~value};
     }
     if (size && (data[0] & 4)) {
         trace = valid_trace;
         trace_length = sizeof(valid_trace) - 1;
     }
     if (trace_length > GLIDE_MAX_TRACE) {
-        glide_recognize(trace, NULL, trace_length, &geometry, &match);
+        glide_recognize(trace, NULL, trace_length, &geometry, &result);
         return 0;
     }
     for (size_t i = 0; i < trace_length; i++) {
@@ -38,9 +39,15 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         for (size_t j = 1; size && j < 4; j++) {
             value |= (uint32_t)data[(i + j) % size] << (8 * j);
         }
-        points[i] = (struct glide_point){.x = (int32_t)value,
-                                         .y = (int32_t)~value};
+        points[i] =
+            (struct glide_point){.x = (int32_t)value, .y = (int32_t)~value};
     }
-    glide_recognize(trace, points, trace_length, &geometry, &match);
+    glide_recognize(trace, points, trace_length, &geometry, &result);
+    assert(result.count <= GLIDE_MAX_MATCHES);
+    for (size_t i = 0; i < result.count; i++) {
+        assert(result.matches[i].word != NULL);
+        assert(result.matches[i].length >= 2);
+        assert(result.matches[i].length <= GLIDE_MAX_WORD);
+    }
     return 0;
 }
