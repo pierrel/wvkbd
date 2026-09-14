@@ -81,10 +81,10 @@ struct key {
     const double width;      // relative width (1.0)
     const enum key_type type;
 
-    const uint32_t code;   /* code: key scancode or modifier name (see
-                            *   `/usr/include/linux/input-event-codes.h` for
-                            * scancode names,   and              `keyboard.h` for
-                            * modifiers)              XKB keycodes are +8 */
+    const uint32_t code; /* Key scancode or modifier name. See
+                          * /usr/include/linux/input-event-codes.h for scancode
+                          * names and this file for modifiers. XKB keycodes are
+                          * offset by 8. */
     struct layout *layout; // pointer back to the parent layout that holds this
                            // key
     const uint32_t code_mod; /* modifier to force when this key is pressed */

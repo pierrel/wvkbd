@@ -486,7 +486,7 @@ wl_pointer_button(void *data, struct wl_pointer *wl_pointer, uint32_t serial,
     candidate_event = kbd_candidate_pointer_button(&keyboard, button, pressed,
                                                    pointer_x, pointer_y, time);
     if (candidate_event != KbdCandidateMiss) {
-        if (pressed && candidate_event == KbdCandidateDismissed) {
+        if (pressed && candidate_event == KbdCandidateDismissed && !cur_button) {
             cur_button = button;
         }
         return;

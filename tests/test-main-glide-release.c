@@ -1010,6 +1010,29 @@ test_pointer_coordinates_and_button_ownership(void)
     assert(cur_button == 0);
     assert(!cur_press);
     assert(key_releases == 0);
+
+    reset();
+    popup_xdg_surface_configured = true;
+    cur_x = cur_y = 10;
+    cur_button = 272;
+    cur_press = true;
+    keyboard.last_press = &key;
+    candidate_event_result = KbdCandidateDismissed;
+    wl_pointer_button(NULL, NULL, 0, 6, 273, WL_POINTER_BUTTON_STATE_PRESSED);
+    assert(cur_button == 272);
+    assert(cur_press);
+    assert(keyboard.last_press == &key);
+
+    candidate_event_result = KbdCandidateMiss;
+    wl_pointer_button(NULL, NULL, 0, 7, 273, WL_POINTER_BUTTON_STATE_RELEASED);
+    assert(cur_button == 272);
+    assert(cur_press);
+    assert(release_calls == 0);
+    wl_pointer_button(NULL, NULL, 0, 8, 272, WL_POINTER_BUTTON_STATE_RELEASED);
+    assert(cur_button == 0);
+    assert(!cur_press);
+    assert(release_calls == 1);
+    assert(key_releases == 1);
 }
 
 int
