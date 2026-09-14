@@ -436,6 +436,7 @@ wl_pointer_enter(void *data, struct wl_pointer *wl_pointer, uint32_t serial,
 {
     cur_x = wl_fixed_to_int(surface_x);
     cur_y = wl_fixed_to_int(surface_y);
+    kbd_candidate_pointer_motion(&keyboard, cur_x, cur_y);
 }
 
 void
@@ -443,6 +444,7 @@ wl_pointer_leave(void *data, struct wl_pointer *wl_pointer, uint32_t serial,
                  struct wl_surface *surface)
 {
     cur_x = cur_y = -1;
+    kbd_candidate_pointer_motion(&keyboard, cur_x, cur_y);
 }
 
 void

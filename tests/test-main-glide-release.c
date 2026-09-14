@@ -21,6 +21,9 @@ static unsigned int release_calls;
 static unsigned int unpress_calls;
 static unsigned int key_presses;
 static unsigned int key_motions;
+static unsigned int candidate_pointer_motions;
+static int32_t candidate_pointer_x;
+static int32_t candidate_pointer_y;
 static unsigned int followup_calls;
 static bool followup_consumed;
 static const struct key *followup_key;
@@ -178,8 +181,9 @@ enum kbd_candidate_event
 kbd_candidate_pointer_motion(struct kbd *kb, int32_t x, int32_t y)
 {
     (void)kb;
-    (void)x;
-    (void)y;
+    candidate_pointer_motions++;
+    candidate_pointer_x = x;
+    candidate_pointer_y = y;
     return candidate_event_result;
 }
 
@@ -379,6 +383,9 @@ reset(void)
     unpress_calls = 0;
     key_presses = 0;
     key_motions = 0;
+    candidate_pointer_motions = 0;
+    candidate_pointer_x = 0;
+    candidate_pointer_y = 0;
     followup_calls = 0;
     followup_consumed = false;
     followup_key = NULL;
@@ -980,8 +987,12 @@ test_pointer_coordinates_and_button_ownership(void)
     wl_pointer_enter(NULL, NULL, 0, NULL, wl_fixed_from_int(17),
                      wl_fixed_from_int(23));
     assert(cur_x == 17 && cur_y == 23);
+    assert(candidate_pointer_motions == 1);
+    assert(candidate_pointer_x == 17 && candidate_pointer_y == 23);
     wl_pointer_leave(NULL, NULL, 0, NULL);
     assert(cur_x == -1 && cur_y == -1);
+    assert(candidate_pointer_motions == 2);
+    assert(candidate_pointer_x == -1 && candidate_pointer_y == -1);
     assert(candidate_clears == 0);
 
     reset();
