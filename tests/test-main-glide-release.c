@@ -16,6 +16,7 @@ static unsigned int activated_keys;
 static struct key *activated_key;
 static uint8_t activated_mods;
 static bool activation_saw_input_owner;
+static bool activation_saw_glide_undo;
 static unsigned int key_releases;
 static unsigned int release_calls;
 static unsigned int unpress_calls;
@@ -116,6 +117,7 @@ kbd_activate_key(struct kbd *kb, struct key *key, uint32_t time,
     activated_mods = transient_modifier;
     activation_saw_input_owner |=
         cur_press || kb->last_press || mod_swipe.active;
+    activation_saw_glide_undo |= kb->glide_undo_count != 0;
     kbd_press_key(kb, key, time);
     kbd_release_key(kb, time);
     kb->mods = saved_mods;
@@ -378,6 +380,7 @@ reset(void)
     activated_key = NULL;
     activated_mods = NoMod;
     activation_saw_input_owner = false;
+    activation_saw_glide_undo = false;
     key_releases = 0;
     release_calls = 0;
     unpress_calls = 0;
@@ -462,25 +465,36 @@ test_deferred_punctuation_replaces_separator_on_release(void)
 }
 
 static void
-test_control_alt_release_disarms_glide_followup(void)
+test_modified_release_disarms_glide_followup(void)
 {
     struct key comma = {.type = Code, .code = KEY_COMMA};
+    static const struct {
+        enum mod_swipe_action action;
+        uint8_t modifiers;
+    } cases[] = {
+        {ModSwipeControlCandidate, Ctrl},
+        {ModSwipeAltCandidate, Alt},
+        {ModSwipeControlAltCandidate, Ctrl | Alt},
+    };
 
-    reset();
-    popup_xdg_surface_configured = true;
-    next_key = &comma;
-    wl_touch_down(NULL, NULL, 0, 7, NULL, 1, 0, 0);
-    mod_swipe.action = ModSwipeControlAltCandidate;
-    wl_touch_up(NULL, NULL, 0, 8, 1);
-    assert(followup_calls == 1);
-    assert(followup_key == &comma);
-    assert(followup_mods == (Ctrl | Alt));
-    assert(keyboard.glide_undo_count == 0);
-    assert(activated_keys == 1);
-    assert(activated_key == &comma);
-    assert(activated_mods == (Ctrl | Alt));
-    assert(!activation_saw_input_owner);
-    assert(key_presses == 1);
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        reset();
+        popup_xdg_surface_configured = true;
+        next_key = &comma;
+        wl_touch_down(NULL, NULL, 0, 7, NULL, 1, 0, 0);
+        mod_swipe.action = cases[i].action;
+        wl_touch_up(NULL, NULL, 0, 8, 1);
+        assert(followup_calls == 1);
+        assert(followup_key == &comma);
+        assert(followup_mods == cases[i].modifiers);
+        assert(keyboard.glide_undo_count == 0);
+        assert(activated_keys == 1);
+        assert(activated_key == &comma);
+        assert(activated_mods == cases[i].modifiers);
+        assert(!activation_saw_input_owner);
+        assert(!activation_saw_glide_undo);
+        assert(key_presses == 1);
+    }
 }
 
 static void
@@ -1057,7 +1071,7 @@ main(void)
     test_glide_no_match_feedback();
     test_glide_undo_input_order();
     test_deferred_punctuation_replaces_separator_on_release();
-    test_control_alt_release_disarms_glide_followup();
+    test_modified_release_disarms_glide_followup();
     test_control_alt_feedback_takeover_and_cancel();
     test_glide_draw_order();
     test_non_code_key_cannot_extend_glide_trace();

@@ -573,6 +573,13 @@ test_candidate_hit_testing_and_pointer_ownership(void)
     reset_events();
     assert(kbd_candidate_pointer_button(keyboard, 272, true, 150, 30, 3) ==
            KbdCandidateClaimed);
+    assert(keyboard->candidates.pressed_inside);
+    assert(kbd_candidate_pointer_motion(keyboard, -1, -1) ==
+           KbdCandidateOwned);
+    assert(!keyboard->candidates.pressed_inside);
+    assert(kbd_candidate_pointer_motion(keyboard, 150, 30) ==
+           KbdCandidateOwned);
+    assert(keyboard->candidates.pressed_inside);
     assert(kbd_candidate_pointer_button(keyboard, 273, false, 150, 30, 4) ==
            KbdCandidateOwned);
     assert(keyboard->candidates.count == 2);
