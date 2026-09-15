@@ -51,7 +51,9 @@ Activation requires a press and matching release; sliding away cancels it.
 	popup remains input-empty.
 	Space remains a tap. Punctuation does not glide, but retains its tap and short
 	Control/Alt/Control+Alt modifier-swipe behavior; an unrecognized qualified
-	glide inserts nothing and shows =?= in the popup until the next ordinary input.
+	glide inserts nothing. Without a working private learning sink it shows =?=;
+	with *--glide-learning-fd 3* it instead shows =Misswipe= and =Missing= choices
+	for explicit local attribution. The next ordinary input clears either surface.
 	A recognized word emits one trailing Space. Before another accepted keyboard
 	input, plain Backspace retracts that word and its Space. An explicit Space is
 	coalesced with the emitted separator, while ordinary punctuation replaces it.
@@ -61,6 +63,11 @@ Activation requires a press and matching release; sliding away cancels it.
 	movement; Control+Alt requires positive horizontal movement at least twice the
 	absolute vertical movement. This option disables hold repeat for character
 	keys and cannot be combined with *-O*.
+
+*--glide-learning-fd 3*
+	Send bounded private swipe-observation datagrams through inherited descriptor
+	3. The descriptor must be a connected unnamed Unix datagram socket. Invalid or
+	failed descriptors disable observation without affecting keyboard input.
 
 *-l* _layers_
 	comma separated list of layers in vertical/portrait mode.
