@@ -1258,15 +1258,12 @@ draw_visibility_control(bool pressed)
 static void
 position_visibility_control(void)
 {
-    uint32_t keyboard_height;
-
     if (!visibility_layer_surface) {
         return;
     }
-    keyboard_height = keyboard_needs_configure ? height : keyboard.h;
     zwlr_layer_surface_v1_set_margin(
         visibility_layer_surface, 0, 0,
-        visibility == VisibilityCollapsed ? 0 : (int32_t)keyboard_height, 0);
+        visibility == VisibilityCollapsed ? 0 : (int32_t)height, 0);
     wl_surface_commit(visibility_draw_surf.surf);
 }
 
