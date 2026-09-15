@@ -65,10 +65,10 @@ tests/test-mod-swipe: config.h tests/test-mod-swipe.c mod-swipe.c mod-swipe.h gl
 tests/test-glide: config.h tests/test-glide.c glide.c glide.h glide-words-en.h
 	$(CC) $(TEST_CFLAGS) -o $@ tests/test-glide.c glide.c $(TEST_LDFLAGS)
 
-tests/test-glide-learning: tests/test-glide-learning.c glide-learning.c glide-learning.h glide.c glide.h
+tests/test-glide-learning: tests/test-glide-learning.c glide-learning.c glide-learning.h glide.c glide.h glide-words-en.h
 	$(CC) $(TEST_CFLAGS) -D_GNU_SOURCE -o $@ tests/test-glide-learning.c glide-learning.c glide.c $(TEST_LDFLAGS)
 
-tests/test-keyboard-glide: config.h tests/test-keyboard-glide.c keyboard.c keyboard.h glide-learning.c glide-learning.h drw.c drw.h glide.h letters.c letters.h os-compatibility.c os-compatibility.h layout.${LAYOUT}.h keymap.${LAYOUT}.h $(HDRS)
+tests/test-keyboard-glide: config.h tests/test-keyboard-glide.c keyboard.c keyboard.h glide-learning.c glide-learning.h glide.c glide.h glide-words-en.h drw.c drw.h letters.c letters.h os-compatibility.c os-compatibility.h layout.${LAYOUT}.h keymap.${LAYOUT}.h $(HDRS)
 	$(CC) $(TEST_CFLAGS) -ffunction-sections -fdata-sections \
 		-DLAYOUT=\"layout.$(LAYOUT).h\" -DKEYMAP=\"keymap.$(LAYOUT).h\" \
 		-D_XOPEN_SOURCE=700 -DVERSION=\"$(VERSION)\" \

@@ -1107,10 +1107,47 @@ kbd_is_word_punctuation(const struct kbd *kb, const struct key *key)
            (key->code >= KEY_COMMA && key->code <= KEY_SLASH);
 }
 
+static bool
+kbd_key_emits_text(const struct kbd *kb, const struct key *key)
+{
+    uint32_t modifiers;
+
+    if (!key || kb->compose == 1) {
+        return false;
+    }
+    if (key->type == Copy) {
+        return !(kb->mods & (Ctrl | Alt | Super | AltGr));
+    }
+    if (key->type != Code) {
+        return false;
+    }
+    modifiers = kbd_effective_modifiers(kb, key);
+    if (modifiers & (Ctrl | Alt | Super | AltGr)) {
+        return false;
+    }
+    return (key->code >= KEY_1 && key->code <= KEY_0) ||
+           (key->code >= KEY_Q && key->code <= KEY_P) ||
+           (key->code >= KEY_A && key->code <= KEY_L) ||
+           (key->code >= KEY_Z && key->code <= KEY_M) ||
+           key->code == KEY_SPACE || key->code == KEY_TAB ||
+           key->code == KEY_ENTER || key->code == KEY_KPASTERISK ||
+           key->code == KEY_KPPLUS || kbd_is_word_punctuation(kb, key);
+}
+
 bool
 kbd_begin_glide_followup(struct kbd *kb, const struct key *key, uint32_t time)
 {
     uint8_t count = kb->glide_undo_count;
+    bool correction_pending =
+        kb->learning && kb->learning->correction_pending;
+
+    if (correction_pending) {
+        if (!kbd_key_emits_text(kb, key)) {
+            kbd_clear_glide_undo(kb);
+            return false;
+        }
+        glide_learning_resolve_correction(kb->learning, false);
+    }
 
     if (!key || kb->compose ||
         (kb->mods & (Ctrl | Alt | Super | AltGr))) {
@@ -1124,7 +1161,7 @@ kbd_begin_glide_followup(struct kbd *kb, const struct key *key, uint32_t time)
     if (key->type == Mod && (key->code == Shift || key->code == CapsLock)) {
         return false;
     }
-    if (key->type == Code)
+    if (!correction_pending && key->type == Code)
         glide_learning_resolve_correction(kb->learning, false);
     if (!count || count > GLIDE_MAX_WORD + 1) {
         kbd_clear_glide_undo(kb);

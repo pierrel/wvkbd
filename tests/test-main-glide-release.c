@@ -1669,6 +1669,23 @@ test_configure_resets_all_input_state(void)
     assert(configure_events[0] == 'A');
 }
 
+static void
+test_modifier_only_lifecycle_reset_redraws(void)
+{
+    int keyboard_surface;
+
+    reset();
+    layer_surface = (struct zwlr_layer_surface_v1 *)&keyboard_surface;
+    draw_surf.buf = (struct wl_buffer *)&keyboard_surface;
+    keyboard.vkbd = (struct zwp_virtual_keyboard_v1 *)&keyboard_surface;
+    keyboard.mods = Ctrl;
+    reset_input_lifecycle(1);
+    assert(keyboard.mods == NoMod);
+    assert(modifier_resets == 1);
+    assert(layout_draws == 1);
+    assert(surface_flips == 1);
+}
+
 int
 main(void)
 {
@@ -1693,6 +1710,7 @@ main(void)
     test_visibility_full_hide_tears_down_every_surface();
     test_visibility_show_and_fractional_scale_cancel_control_input();
     test_configure_resets_all_input_state();
+    test_modifier_only_lifecycle_reset_redraws();
     test_cancel_active_input();
     test_lifecycle_boundaries();
     test_orientation_output_and_configure();

@@ -725,7 +725,18 @@ test_retracted_glide_resolves_on_next_text_key(void)
 {
     struct key backspace = {.type = Code, .code = KEY_BACKSPACE};
     struct key capslock = {.type = Mod, .code = CapsLock};
+    struct key chord_modifier = {.type = Mod, .code = Ctrl};
     struct key letter = {.type = Code, .code = KEY_A};
+    struct key control_letter = {
+        .type = Code,
+        .code = KEY_A,
+        .code_mod = Ctrl,
+    };
+    struct key arrow = {.type = Code, .code = KEY_LEFT};
+    struct key layout = {.type = Layout};
+    struct key compose = {.type = Compose};
+    struct key copy = {.type = Copy, .code = 0x00e9, .code_mod = 0x00c9};
+    const uint8_t chord_modifiers[] = {Ctrl, Alt, Super, AltGr};
     struct glide_learning_sink learning = {
         .fd = -1,
         .session = "0123456789abcdef0123456789abcdef",
@@ -749,6 +760,63 @@ test_retracted_glide_resolves_on_next_text_key(void)
     assert(!kbd_begin_glide_followup(&keyboard, &capslock, 10));
     assert(learning.pending_gesture == 1);
     assert(learning.correction_pending);
+    assert(!kbd_begin_glide_followup(&keyboard, &arrow, 10));
+    assert(learning.pending_gesture == 1);
+    assert(learning.correction_pending);
+    assert(!kbd_begin_glide_followup(&keyboard, &control_letter, 10));
+    assert(learning.pending_gesture == 1);
+    assert(learning.correction_pending);
+    for (size_t i = 0;
+         i < sizeof(chord_modifiers) / sizeof(chord_modifiers[0]); i++) {
+        assert(!kbd_begin_glide_followup(&keyboard, &chord_modifier, 10));
+        keyboard.mods = chord_modifiers[i];
+        assert(!kbd_begin_glide_followup(&keyboard, &letter, 10));
+        assert(learning.pending_gesture == 1);
+        assert(learning.correction_pending);
+        keyboard.mods = NoMod;
+    }
+    assert(!kbd_begin_glide_followup(&keyboard, &layout, 10));
+    assert(learning.pending_gesture == 1);
+    assert(learning.correction_pending);
+    assert(!kbd_begin_glide_followup(&keyboard, &compose, 10));
+    keyboard.compose = 1;
+    assert(!kbd_begin_glide_followup(&keyboard, &layout, 10));
+    assert(learning.pending_gesture == 1);
+    assert(learning.correction_pending);
+    keyboard.compose = 2;
+    assert(!kbd_begin_glide_followup(&keyboard, &copy, 10));
+    length = recv(sockets[1], record, sizeof(record), 0);
+    assert(length > 0 && (size_t)length < sizeof(record));
+    record[length] = '\0';
+    assert(strstr(record, "\"outcome\":\"manual-correction-ambiguous\""));
+    assert(!learning.pending_gesture);
+    close(sockets[0]);
+    close(sockets[1]);
+}
+
+static void
+test_retracted_glide_resolves_on_plain_code_text(void)
+{
+    struct key backspace = {.type = Code, .code = KEY_BACKSPACE};
+    struct key letter = {.type = Code, .code = KEY_A};
+    struct glide_learning_sink learning = {
+        .fd = -1,
+        .session = "0123456789abcdef0123456789abcdef",
+        .pending_gesture = 1,
+        .pending_has_candidates = true,
+    };
+    struct kbd keyboard = {
+        .vkbd = (struct zwp_virtual_keyboard_v1 *)(uintptr_t)1,
+        .glide_undo_count = 4,
+        .learning = &learning,
+    };
+    char record[GLIDE_LEARNING_JSON_MAX];
+    int sockets[2];
+    ssize_t length;
+
+    assert(socketpair(AF_UNIX, SOCK_DGRAM, 0, sockets) == 0);
+    learning.fd = sockets[0];
+    assert(kbd_begin_glide_followup(&keyboard, &backspace, 9));
     assert(!kbd_begin_glide_followup(&keyboard, &letter, 10));
     length = recv(sockets[1], record, sizeof(record), 0);
     assert(length > 0 && (size_t)length < sizeof(record));
@@ -806,6 +874,7 @@ main(void)
     test_candidate_zero_and_case_replacement();
     test_no_candidate_learning_choices_are_explicit_and_emit_no_keys();
     test_retracted_glide_resolves_on_next_text_key();
+    test_retracted_glide_resolves_on_plain_code_text();
     test_modified_glide_followup_commits_top_candidate();
     puts("keyboard glide tests passed");
     return 0;

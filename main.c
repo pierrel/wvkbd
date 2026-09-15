@@ -1597,6 +1597,8 @@ cancel_active_input(uint32_t time)
 static void
 reset_input_lifecycle(uint32_t time)
 {
+    bool redraw_layout = keyboard.mods || keyboard.compose;
+
     glide_learning_clear(&glide_learning);
     kbd_clear_glide_undo(&keyboard);
     cancel_active_input(time);
@@ -1608,10 +1610,10 @@ reset_input_lifecycle(uint32_t time)
     }
     if (keyboard.compose) {
         keyboard.compose = 0;
-        if (layer_surface && draw_surf.buf) {
-            kbd_draw_layout(&keyboard);
-            drwsurf_flip(&draw_surf);
-        }
+    }
+    if (redraw_layout && layer_surface && draw_surf.buf) {
+        kbd_draw_layout(&keyboard);
+        drwsurf_flip(&draw_surf);
     }
 }
 
