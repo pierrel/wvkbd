@@ -1117,7 +1117,7 @@ kbd_begin_glide_followup(struct kbd *kb, const struct key *key, uint32_t time)
         kbd_clear_glide_undo(kb);
         return false;
     }
-    if (key->type == Mod && key->code == Shift) {
+    if (key->type == Mod && (key->code == Shift || key->code == CapsLock)) {
         return false;
     }
     if (key->type == Code)

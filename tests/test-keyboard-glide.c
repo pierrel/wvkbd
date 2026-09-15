@@ -721,6 +721,7 @@ static void
 test_retracted_glide_resolves_on_next_text_key(void)
 {
     struct key backspace = {.type = Code, .code = KEY_BACKSPACE};
+    struct key capslock = {.type = Mod, .code = CapsLock};
     struct key letter = {.type = Code, .code = KEY_A};
     struct glide_learning_sink learning = {
         .fd = -1,
@@ -741,6 +742,9 @@ test_retracted_glide_resolves_on_next_text_key(void)
     learning.fd = sockets[0];
     assert(kbd_begin_glide_followup(&keyboard, &backspace, 9));
     assert(keyboard.glide_undo_count == 0);
+    assert(learning.correction_pending);
+    assert(!kbd_begin_glide_followup(&keyboard, &capslock, 10));
+    assert(learning.pending_gesture == 1);
     assert(learning.correction_pending);
     assert(!kbd_begin_glide_followup(&keyboard, &letter, 10));
     length = recv(sockets[1], record, sizeof(record), 0);

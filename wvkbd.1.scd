@@ -52,8 +52,9 @@ Activation requires a press and matching release; sliding away cancels it.
 	Space remains a tap. Punctuation does not glide, but retains its tap and short
 	Control/Alt/Control+Alt modifier-swipe behavior; an unrecognized qualified
 	glide inserts nothing. Without a working private learning sink it shows =?=;
-	with *--glide-learning-fd 3* it instead shows =Misswipe= and =Missing= choices
-	for explicit local attribution. The next ordinary input clears either surface.
+	with a working sink supplied via *--glide-learning-fd 3* it instead shows
+	=Misswipe= and =Missing= choices for explicit local attribution. The next
+	ordinary input clears either surface.
 	A recognized word emits one trailing Space. Before another accepted keyboard
 	input, plain Backspace retracts that word and its Space. An explicit Space is
 	coalesced with the emitted separator, while ordinary punctuation replaces it.

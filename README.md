@@ -106,9 +106,10 @@ an unused candidate cell dismisses the strip. The separate popup remains
 input-empty. Space remains a tap. Punctuation does not glide, but retains its tap
 and short Ctrl/Alt/Ctrl+Alt modifier-swipe behavior. An unrecognized qualified
 glide inserts nothing. Without a working private learning sink it shows `?` in
-the popup; with `--glide-learning-fd 3` it instead shows `Misswipe` and `Missing`
-choices for explicit local attribution. The next ordinary input clears either
-surface. The gesture-takeover threshold is the floor of 40% of the key height,
+the popup; with a working sink supplied via `--glide-learning-fd 3` it instead
+shows `Misswipe` and `Missing` choices for explicit local attribution. The next
+ordinary input clears either surface. The gesture-takeover threshold is the
+floor of 40% of the key height,
 with a 12-pixel minimum. Upward and downward gestures require at least twice as
 much vertical as horizontal movement; Ctrl+Alt requires positive horizontal
 movement at least twice the absolute vertical movement. Each recognized word
@@ -116,7 +117,8 @@ emits one
 trailing Space. Before another accepted keyboard input, a plain Backspace
 retracts that word and its Space. An explicit Space is coalesced with the emitted
 separator, while ordinary punctuation replaces it, so both produce normal text.
-Tapping Shift preserves the pending separator decision for the following key.
+Tapping Shift or CapsLock preserves the pending separator decision for the
+following key.
 External focus, cursor, and hardware edits are not observable.
 
 This mode deliberately trades hold-to-repeat for modifier gestures on character
