@@ -186,7 +186,6 @@ static void destroy_popup_surface();
 static void destroy_keyboard_surfaces(uint32_t time);
 static void hide_visibility_control();
 static void show_visibility_control();
-static void position_visibility_control();
 static void draw_visibility_control(bool pressed);
 static void resize_visibility_control();
 static void refresh_visibility_control_scale();
@@ -1256,22 +1255,9 @@ draw_visibility_control(bool pressed)
 }
 
 static void
-position_visibility_control(void)
-{
-    if (!visibility_layer_surface) {
-        return;
-    }
-    zwlr_layer_surface_v1_set_margin(
-        visibility_layer_surface, 0, 0,
-        visibility == VisibilityCollapsed ? 0 : (int32_t)height, 0);
-    wl_surface_commit(visibility_draw_surf.surf);
-}
-
-static void
 show_visibility_control(void)
 {
     if (visibility_layer_surface) {
-        position_visibility_control();
         draw_visibility_control(false);
         return;
     }
@@ -1301,7 +1287,7 @@ show_visibility_control(void)
                                                      false);
     zwlr_layer_surface_v1_add_listener(
         visibility_layer_surface, &visibility_surface_listener, NULL);
-    position_visibility_control();
+    wl_surface_commit(visibility_draw_surf.surf);
 }
 
 static void
@@ -1361,8 +1347,6 @@ flip_landscape()
     if (layer_surface && was_landscape != keyboard.landscape) {
         destroy_keyboard_surfaces(last_input_time);
         show();
-    } else {
-        position_visibility_control();
     }
 }
 
@@ -1386,8 +1370,6 @@ layer_surface_configure(void *data, struct zwlr_layer_surface_v1 *surface,
         keyboard.h = h;
         keyboard.scale = scale;
         keyboard_needs_configure = false;
-        position_visibility_control();
-
         if (wfs_mgr && viewporter) {
             wp_viewport_set_destination(draw_surf_viewport, keyboard.w,
                                         keyboard.h);

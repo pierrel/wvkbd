@@ -1,5 +1,4 @@
 #include <assert.h>
-#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -60,7 +59,6 @@ static size_t draw_event_count;
 static char configure_events[16];
 static size_t configure_event_count;
 static bool track_configure_order;
-static int32_t visibility_bottom_margin;
 static enum layout_id test_layers[] = {Index, NumLayouts};
 
 static void seed_deferred_glide(void);
@@ -78,17 +76,6 @@ __wrap_wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
                               const struct wl_interface *interface,
                               uint32_t version, uint32_t flags, ...)
 {
-    if (proxy == (struct wl_proxy *)visibility_layer_surface &&
-        opcode == ZWLR_LAYER_SURFACE_V1_SET_MARGIN) {
-        va_list args;
-
-        va_start(args, flags);
-        (void)va_arg(args, int);
-        (void)va_arg(args, int);
-        visibility_bottom_margin = va_arg(args, int);
-        (void)va_arg(args, int);
-        va_end(args);
-    }
     if (keyboard.vkbd && proxy == (struct wl_proxy *)keyboard.vkbd &&
         opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS) {
         modifier_resets++;
@@ -526,7 +513,6 @@ reset(void)
     draw_event_count = 0;
     configure_event_count = 0;
     track_configure_order = false;
-    visibility_bottom_margin = -1;
     current_output = NULL;
     wl_outputs_size = 0;
     layer_surface = NULL;
@@ -560,31 +546,6 @@ reset(void)
     keyboard.layouts = layouts;
     keyboard.layers = test_layers;
     keyboard.landscape_layers = test_layers;
-}
-
-static void
-test_visibility_margin_uses_logical_requested_height(void)
-{
-    int control_surface;
-
-    reset();
-    visibility_layer_surface =
-        (struct zwlr_layer_surface_v1 *)&control_surface;
-    visibility_draw_surf.surf = (struct wl_surface *)&control_surface;
-    visibility = VisibilityExpanded;
-    height = 300;
-    keyboard.h = 600;
-
-    position_visibility_control();
-    assert(visibility_bottom_margin == 300);
-
-    height = 180;
-    position_visibility_control();
-    assert(visibility_bottom_margin == 180);
-
-    visibility = VisibilityCollapsed;
-    position_visibility_control();
-    assert(visibility_bottom_margin == 0);
 }
 
 static void
@@ -1731,7 +1692,6 @@ main(void)
     test_visibility_pointer_routes_and_collapses();
     test_visibility_full_hide_tears_down_every_surface();
     test_visibility_show_and_fractional_scale_cancel_control_input();
-    test_visibility_margin_uses_logical_requested_height();
     test_configure_resets_all_input_state();
     test_cancel_active_input();
     test_lifecycle_boundaries();
