@@ -24,12 +24,15 @@ struct glide_geometry {
 struct glide_match {
     const char *word;
     size_t length;
+    uint64_t score;
 };
 
 struct glide_result {
     size_t count;
     struct glide_match matches[GLIDE_MAX_MATCHES];
 };
+
+extern const char glide_dictionary_sha256[];
 
 void glide_recognize(const char *trace, const struct glide_point *points,
                      size_t length, const struct glide_geometry *geometry,

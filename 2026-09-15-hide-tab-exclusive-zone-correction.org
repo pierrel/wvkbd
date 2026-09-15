@@ -1,0 +1,23 @@
+#+title: Native Hide tab exclusive-zone positioning correction
+#+date: 2026-09-15
+
+* Historical supersessions
+
+This supersedes the positioning mechanism in
+=2026-09-15-hide-tab-logical-position.org=, section =Correction=.  The
+keyboard's layer surface already reserves its requested logical height as an
+exclusive zone.  A second bottom margin on the Hide surface applies that
+height again, leaving a full keyboard-height gap.
+
+* Correction
+
+The expanded Hide surface uses a zero bottom margin and follows the
+compositor's usable bottom edge above the keyboard's exclusive zone.  When the
+keyboard is collapsed, destroying its layer surface removes that exclusive
+zone, so the same zero-margin control naturally moves to the physical bottom.
+This also lets the compositor reposition the control when output scale or
+orientation changes without a duplicate client-side height calculation.
+
+The client no longer sends or recalculates any explicit margin.  Live
+acceptance uses a compositor screenshot because a single-surface protocol mock
+cannot model interaction between two layer surfaces' exclusive zones.

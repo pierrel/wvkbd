@@ -1,0 +1,488 @@
+#+title: Swipe learning capture design
+#+date: 2026-09-12
+
+* State
+
+Design revised after the first Terra review round.  Implementation is
+deliberately split so the transport, schema, and local collector can be built
+before the separate ranked-suggestion effort fixes its final keyboard-owned
+selection interface.  No captured data changes the live decoder.
+
+* Lineage
+
+This design follows =2026-09-10-geometry-glide-recognizer.org=.  It adds an
+optional observation boundary around later decoder outcomes.  It does not
+rewrite that historical recognizer design or the separate suggestion design.
+
+* Goal and evidence rule
+
+Capture enough bounded local evidence to replay accepted and corrected glides
+against a pinned decoder and dictionary without observing surrounding
+application text.  The records must preserve what the keyboard actually saw,
+not infer what the user meant.
+
+A qualified gesture that produces no candidates proves only the decoder result
+=no-candidate=.  It does not prove a lookup defect: a deliberate word and a
+well-formed accidental misswipe can produce the same result.  The quality label
+=lookup-failure= or =user-misswipe= therefore requires an explicit user choice.
+The later suggestion surface offers =Misswipe=, =Missing=, and =Dismiss= after
+a no-candidate result.  If neither attribution is selected, the episode closes
+as =no-candidate-unattributed=.  These controls report intent only when private
+capture is enabled; otherwise they dismiss feedback without recording it.
+
+Likewise, retracting a candidate and immediately gliding again is recorded as
+=retracted-then-reswiped=.  It is evidence of a correction episode, not proof
+that the first gesture, dictionary, or ranking was wrong.  A manually typed
+replacement remains =manual-correction-ambiguous= and the replacement text is
+never captured.
+
+* Record schema
+
+The keyboard emits two bounded JSON records sharing a random 128-bit
+per-keyboard-start session ID and a monotonically increasing gesture ID.  The
+session ID is exactly 32 lowercase hexadecimal characters.  The gesture ID is
+an unsigned 64-bit integer starting at one.  The pair =(session, gesture)= is
+the sole record identity.
+
+All objects reject unknown or missing fields.  All strings are UTF-8 JSON
+strings but the schema permits ASCII subsets only.  Coordinates are signed
+32-bit integers.  Scores are unsigned 64-bit integers.  No JSON number is
+floating point.
+
+1. A =gesture= object has exactly =type= (="gesture"=), =version= (=1=),
+   =session=, =gesture=, =algorithm= (the exact 1..24-character build constant
+   matching =[a-z0-9-]+=), =dictionary= (the exact 64-character lowercase SHA-256),
+   =trace= (2..64 lowercase =a-z= characters), =points= (one =[x,y]= pair per
+   trace character), =geometry= (exactly 26 =[x,y]= pairs in =a= through =z=
+   order), =key_height= (1..2^32-1), =candidates= (zero through three objects),
+   and =presentation=.  A candidate has exactly =word= (2..24 lowercase =a-z=
+   characters), =score=, and =rank=; ranks are contiguous from one.  Candidate
+   count zero requires =presentation="no-candidate"=.  A nonempty candidate
+   list requires =presentation="top-queued"= after the validated top word and
+   separator requests have been issued, or ="local-emission-rejected"= if
+   validation rejects them before any Wayland request.
+2. A =resolution= object has exactly =type= (="resolution"=), =version= (=1=),
+   =session=, =gesture=, =outcome=, and optionally =selected_rank=.  The latter
+   is present if and only if the outcome is =alternate-selected= and is an
+   integer from two through the gesture's candidate count.  Allowed outcomes are
+   =top-committed=,
+   =alternate-selected=, =explicit-lookup-failure=,
+   =explicit-user-misswipe=, =no-candidate-unattributed=,
+   =retracted-then-reswiped=, =manual-correction-ambiguous=,
+   and =local-emission-rejected=.
+
+The fixed serializer buffer and maximum datagram are 4096 bytes.  A test using
+64 minimum-int coordinates, 26 maximum-int geometry coordinates, three
+24-letter candidates, maximum scores and IDs, and maximum metadata must prove
+the complete encoded record fits.  Serialization failure drops only the
+observation.
+
+=alternate-selected= is a ranking failure relative to an explicit choice only
+after the full replacement request sequence has been queued.  =top-committed=
+occurs only when a keyboard-owned action closes candidate choice without
+retracting the emitted unit.  Wayland has no delivery acknowledgement, so no
+record claims that an application received text.  Local validation rejection
+is =local-emission-rejected= and is excluded from decoder-quality totals.
+Process exit, surface or seat loss, focus/session discontinuity, and
+unobservable external input leave the gesture unresolved.  =unresolved= is not
+a wire outcome.  Export represents a stored gesture with no resolution using a
+separate exact =pending= object with =type="pending"=, =version= (=1=),
+=session=, =gesture=, and =state="unresolved"=.  It never invents a resolution
+event that a crashed process could not send.
+
+Invalid traces, unqualified gestures, unmapped endpoints, incomplete geometry,
+and compositor touch cancellation are not lookup failures.  They remain outside
+capture unless a gesture was already recorded, in which case loss of the
+keyboard-owned transaction leaves that gesture unresolved.
+
+Every gesture is a self-contained decoder input.  It retains the existing
+=GLIDE_MAX_TRACE= and =GLIDE_MAX_WORD= bounds and the active layout geometry.
+It contains no wall-clock timestamp, application identity, focus title,
+surrounding buffer text, manually typed correction, URL, contact, or process
+metadata.
+
+* Keyboard ownership and dependency
+
+The separate ranked-suggestion effort owns one keyboard transaction: ranked
+decoding, initial word-plus-separator emission, candidate rendering and hit
+testing on the keyboard input surface, exact-unit replacement, and the existing
+immediate Space, Backspace, punctuation, Shift, and CapsLock behavior.  Learning
+must not duplicate or rescore any of this state.
+
+After that interface lands, =main.c= calls the learning observer only at the
+semantic boundaries already owned by the keyboard:
+
+1. qualified glide release after decoder and geometry validation;
+2. successful initial candidate presentation or observed no-candidate result;
+3. successful alternate selection;
+4. exact-unit retraction and the next keyboard-owned action; and
+5. lifecycle loss while a gesture remains unresolved.
+
+The ranked result must expose each displayed candidate's exact score and stable
+rank.  The generated dictionary exposes a stable content fingerprint and the
+decoder exposes an algorithm-schema constant.  Capture does not rescore or
+select candidates.
+
+The no-candidate =Missing= and =Misswipe= actions, if accepted by the suggestion
+design, are hit-tested by the same keyboard-owned input-surface strip.  Learning
+receives only the resulting explicit enum.  It does not own a second touch
+state machine or draw into the visual-only popup.
+
+The final keyboard transition contract is exact:
+
+1. Selecting displayed rank two or three queues the existing exact-unit
+   replacement transaction, then resolves =alternate-selected= with that rank.
+2. Selecting rank one or dismissing the strip while retaining the top candidate
+   resolves =top-committed=.  Any ordinary non-Backspace key also commits the
+   top candidate before performing its existing behavior.  Preparatory Shift or
+   CapsLock closes the strip but keeps the exact-unit undo and learning episode
+   open until the following keyboard-owned action.
+3. Backspace while exact-unit undo is available queues that retraction and moves
+   the episode to waiting-for-correction.  The next qualified glide resolves the
+   old episode =retracted-then-reswiped= before opening the new one.  The next
+   non-glide text action resolves =manual-correction-ambiguous= without capturing
+   its text.  Transaction or lifecycle loss leaves it unresolved.
+4. A zero-candidate result opens exactly =Misswipe=, =Missing=, and =Dismiss=.
+   The first two resolve the explicit labels.  Dismiss or the next ordinary
+   keyboard action resolves =no-candidate-unattributed=.  Backspace has no unit
+   to retract here, so it first resolves =no-candidate-unattributed= and then
+   performs its ordinary delete.  Lifecycle loss leaves the stored gesture
+   unresolved.
+5. Validation failure before the first initial or replacement Wayland request
+   resolves =local-emission-rejected=.  Once any request is issued, later
+   compositor or client delivery is unobservable and must not be relabeled.
+
+A new input beginning outside the active strip closes the preceding choice
+before the new action is interpreted.  Backspace follows transition 3 only when
+an exact-unit undo exists; for a zero-candidate episode it follows transition 4
+and resolves unattributed before its ordinary delete.  Every other outside-strip
+input resolves a retained top candidate as =top-committed= and a no-candidate
+episode as =no-candidate-unattributed=.  If that input becomes a qualified glide,
+the old resolution is queued before the new gesture record.  This also governs
+the first input after preparatory Shift or CapsLock.
+
+* Lossy transport by construction
+
+Add =glide-learning.c= and =glide-learning.h= with a fixed-buffer serializer and
+an optional connected nonblocking =AF_UNIX/SOCK_DGRAM= file descriptor.  The
+sender begins disabled.  Final integration reserves the stable argument
+=--glide-learning-fd 3= and registers that descriptor with the keyboard event
+loop.  Control datagrams are at most 32 ASCII bytes and exactly =pause N=,
+=paused N=, =enable N=, or =enabled N=, where =N= is the unsigned 64-bit
+management generation in decimal.  Malformed, stale, or out-of-state controls
+are ignored.  wvkbd reads at most four controls per readiness wake; if the
+descriptor remains readable it disables that event source for 125 ms before
+trying again, allowing kernel backpressure to protect the keyboard event loop.
+The session launcher creates an anonymous socket pair, gives one end to the
+collector, and duplicates the sender onto descriptor 3 before executing wvkbd.
+There is no replaceable pathname socket and no listener.
+Both endpoints verify datagram type, Unix domain, connectedness, and unnamed
+local and peer addresses before accepting the inherited descriptor.
+
+Serialization validates bounded lowercase candidate words and all array/count
+fields.  Sending allocates no memory, blocks nowhere, retries nothing, and logs
+neither payloads nor send errors.  While disabled or paused it does not serialize
+observations.  A missing socket, full receive queue, collector crash, malformed
+configuration, or storage failure drops observation only.  It cannot change
+ordinary Wayland output, suggestion state, or process liveness.
+
+The independent pre-suggestion implementation is limited to this schema,
+serializer, lossy descriptor sink, and focused unit/fuzz coverage.  It does not
+hook =main.c= or add a CLI option until the ranked-result ownership contract is
+exact.
+
+* Local collector, retention, and trust
+
+EmacsOS supplies a non-root, standard-library-only datagram collector.  It reads
+one inherited connected socket-pair descriptor and accepts at most 4096 bytes
+per datagram.  It uses =recvmsg= and rejects =MSG_TRUNC= before parsing.  A token
+bucket admits a burst of 16 datagrams and refills 8 per monotonic second.  Each
+readiness wake consumes at most 16 datagrams.  Once no token remains, the
+collector stops polling the descriptor until the next token time, so kernel
+queue pressure makes the nonblocking sender drop rather than letting receive
+work consume a core.  Excess traffic is dropped before JSON parsing or
+filesystem work.  It validates exact
+schema and field sets, bounded arrays/strings/integers, lowercase words, known
+outcomes, and gesture/resolution pairing before append.  Invalid input is
+dropped without echoing payloads.
+
+The anonymous descriptor prevents unrelated same-UID processes from replacing
+a listener, but code able to inherit or inject into the session descriptor can
+still poison samples.  Exports are user evidence, never trusted ground truth.
+There is no network listener, root helper, model tool, server endpoint, or
+automatic sync.
+
+State lives only in a private EmacsOS state directory.  Directories are mode
+0700 and files mode 0600.  Files are reached through validated directory file
+descriptors with =openat=, =O_NOFOLLOW=, and post-open ownership/type/link/mode
+checks.  One cooperating advisory lock covers marker changes, append, compaction,
+export, show, and erase.  Exports use =O_CREAT|O_EXCL= beneath the validated
+directory.
+
+The append-only JSONL journal records the complete gesture line immediately and
+then its resolution line.  On startup the collector rebuilds an index by
+=(session, gesture)=.  An exact duplicate is ignored.  A conflicting duplicate,
+orphan resolution, resolution-before-gesture, or second resolution is rejected.
+Eviction removes a whole identity, never half of a resolved pair.  Stored
+gestures with no resolution are pending and appear as =unresolved= in show and
+export.
+
+Before index rebuild or append, startup repairs only a torn final line under the
+state lock: if a nonempty journal does not end in newline, it scans backward
+within the 8 MiB bound, truncates after the last newline or to zero, =fsync=s the
+journal, and =fsync=s the directory.  A malformed complete line is not silently
+discarded; capture stays off and =show= reports validation failure.
+
+The journal high-water bounds are 2,048 gestures and 8 MiB.  Crossing either
+bound compacts once to both low-water targets, at most 1,536 newest gestures and
+6 MiB, through same-filesystem atomic replacement.  This hysteresis bounds work
+under ordinary sustained input.  A collector lifetime additionally admits at
+most 8,192 datagrams and performs at most 64 MiB of filesystem writes, counting
+appends, compaction temporaries, and state metadata.  Before either next action
+would exceed its budget, capture latches off for that session and =show= reports
+=session budget exhausted= from a private zero-content status marker.  A new
+collector session clears the marker before admission begins; erase clears it as
+budget state.  Reopening for each append makes an on-device erase effective
+immediately.
+
+Compaction uses the fixed private =journal.tmp= name under the lock.  It removes
+a validated stale temporary on recovery, writes and =fsync=s the complete new
+journal, atomically renames it, then =fsync=s the state directory.  Export uses
+=export-N.tmp= followed by =export-N.jsonl= with the same write, =fsync=, rename,
+and directory-=fsync= sequence; the monotonic sequence is allocated under the
+lock.  Startup removes only validated managed temporary names.  Erase removes
+the journal, every export, every managed temporary, and the budget state before
+directory =fsync=, while retaining the enable marker.  Filesystem-level recovery
+of previously deleted blocks is outside the guarantee.
+
+The decoder and keyboard never read the journal, exports, labels, or aggregate
+counts.  Live adaptation is impossible by construction.
+
+The independent pre-suggestion EmacsOS implementation is limited to the
+standalone collector, validation/retention library, tests, and an unloaded
+=swipe-learning.el= management module.  It does not alter session launch,
+deployment manifests, keyboard argv, or required-process heartbeats.  Until the
+final pause-and-drain path exists, disable rechecks the opt-in marker under the
+append lock and erase fails visibly while the collector holds its lifetime
+lock.
+
+* User controls
+
+Capture defaults off because traces and candidates reveal typed content.
+=swipe-learning.el= provides non-modal =M-x= commands using the final
+=emacsos-= namespace:
+
+1. =emacsos-swipe-learning-enable= creates the private persistent opt-in marker
+   and asks the current collector to run the control barrier below.  It first
+   opens and focuses the learning buffer with =Enabling learning...=, then
+   returns to Emacs.  A timer carrying the allocated management generation
+   checks bounded status until it updates that visible buffer to =Learning on=
+   after the matching enabled acknowledgement, or =Enabled for next session;
+   collector unavailable=.  After two seconds without success, the timer queues
+   a newer cancel generation under the state lock.  Its accepted queue position
+   fences persistence immediately; the buffer reports =Enabled for next session;
+   collector unavailable= while the collector completes sender pause later.
+   A newer operation cancels the display timer, and any late or mismatched
+   acknowledgement is ignored.
+2. =emacsos-swipe-learning-disable= removes the marker before asking the
+   collector to pause.  It immediately reports =Learning off=.  The collector
+   stops persistence as soon as the marker is absent and keeps draining without
+   parsing, so disable does not require a keyboard restart.
+3. =emacsos-swipe-learning-show= opens an ordinary read-only buffer showing
+   enabled/collector state, retention bounds, outcome counts, unresolved and
+   unattributed records, and inspectable records.
+4. =emacsos-swipe-learning-export= creates a stable validated JSONL snapshot in
+   the same private state directory, trimming an incomplete final record and
+   using a sequence filename rather than content or wall time.  It opens the
+   management buffer with =Exporting...= and performs lock and filesystem work
+   in a subprocess.  Its completion updates the buffer only if its operation
+   generation is still current; a later action makes that result stale.  Only
+   one export may be pending.  A second reports =Export already in progress=.
+   Before publication it rechecks under the lock that no later erase generation
+   exists, otherwise it deletes its temporary without publishing.  It publishes
+   and =fsync=s the new export before pruning older completed exports.
+5. =emacsos-swipe-learning-erase= uses the existing in-buffer two-tap pattern,
+   then displays =Erasing...= and asks the live collector to pause and drain
+   before it removes the journal, exports, managed temporaries, and budget state.
+   If the marker remains present it completes a fresh enable barrier before
+   reporting =Learning data erased; capture on=.  With no live collector it
+   erases directly under the state lock and reports capture off or enabled for
+   next session.  After two seconds without reaching the erase commit point, a
+   newer cancel generation is queued under the lock.  If status is still before
+   the commit point, that accepted queue position fences deletion and the buffer
+   reports =Erase canceled; data retained= while sender pause completes later.
+   Once the collector publishes =erase-committing= under the lock,
+   cancellation cannot interrupt deletion and the buffer waits for and reports
+   the actual terminal erase result.  If the collector disappears, closed peer
+   ownership proves no future append is possible and the helper erases directly.
+   If the collector remains alive but cannot acknowledge, the buffer settles on
+   =Erase unavailable; data retained= when no commit began, or =Erase still in
+   progress; check Show= after a published commit, rather than waiting invisibly.
+
+There is no always-visible phone chrome and no modal confirm.  After a
+no-candidate result the keyboard-owned top-row strip presents exactly three
+hit-tested cells, =Misswipe=, =Missing=, and =Dismiss=.  The first two emit the
+corresponding explicit attribution and close the strip; the third closes it as
+=no-candidate-unattributed=.  The next ordinary keyboard action also closes it
+unattributed.  Those controls keep the same visible behavior while capture is
+off; the collector simply discards their observations.
+
+=show= reports whether capture is enabled, whether this session's collector is
+alive, both retention bounds, gesture and pending counts, outcome counts, and
+the inspectable bounded records.  =export= reports its monotonically allocated
+sequence and gesture count.  =erase= reports completion and whether capture
+remains on or off.  Failures are shown in the ordinary management buffer and
+never only in a log.
+
+At most four completed exports and 32 MiB of export files remain after each
+completed operation.  A new snapshot is written and published durably before
+old completed exports compact to at most three and 24 MiB.  The one-operation
+transient is bounded by one journal-sized snapshot and repaired on the next
+locked operation after a crash.  Export temporary writes also
+consume a durable 64 MiB budget since the last erase.  A request that would
+exceed either bound fails visibly before writing.  A recovered export-budget
+temporary conservatively exhausts that budget until erase because a decimal
+prefix cannot prove the intended counter.  Erase resets this budget.
+
+* Final EmacsOS integration
+
+After both dependency contracts land, a small session launcher becomes a new
+process-group leader, creates the anonymous datagram pair, and double-forks the
+collector.  It reaps the intermediate child, duplicates the keyboard end to
+descriptor 3, and executes wvkbd with the stable fixed argument.  Its PID is
+therefore still the wvkbd PID.  The collector is reparented to init but remains
+in the keyboard process group and publishes its PID/status in the private
+runtime directory.  Session cleanup signals the whole validated keyboard
+process group.  It first validates that the keyboard PID is the group leader,
+sends TERM to that group, and waits up to three seconds for group emptiness.  It
+then sends KILL and waits up to one more second if any member remains; respawn or
+further session cleanup cannot proceed while the old group exists.  A wvkbd exit
+immediately enters that cleanup, so no collector overlaps a later session.  This
+preserves supervision without leaving a child for wvkbd to reap.
+
+The single final keyboard command is exactly
+=/usr/local/bin/wvkbd-emacos --mod-swipe -H 300 -L 300 --glide-learning-fd 3=.
+OpenRC invokes the distinct exact launcher command =/usr/local/libexec/
+emacsos-wvkbd-launch /usr/local/bin/wvkbd-emacos --mod-swipe -H 300 -L 300
+--glide-learning-fd 3=.  After its in-process =exec=, =/proc/PID/cmdline= has
+only the wvkbd command above.  The root transaction gate, Emacs fallback
+matcher, process-group validator, fixtures, script tests, and atomic payload
+manifests must move to these respective exact strings in one final integration
+commit.  Until then the scaffold adds no CLI option, so the deployed contract
+remains unchanged.
+
+The launcher creates both endpoints with =CLOEXEC=, closes every unused endpoint
+in every parent, intermediate, and collector branch, and clears =CLOEXEC= only
+on the deliberately duplicated wvkbd descriptor 3.  No other process retains a
+peer endpoint by construction.  A same-UID process permitted to inspect or
+duplicate another process's descriptors can also read its memory and private
+state files; such processes are explicitly outside the confidentiality and
+integrity boundary.  Export still treats samples as untrusted evidence.
+
+Each management request atomically allocates a larger unsigned 64-bit generation
+under the state lock and appends an exact private request object containing only
+=version= (=1=), =generation=, and =operation=, one of =enable=, =disable=,
+=erase=, or =cancel=.  The bounded queue preserves order; it compacts completed
+entries to the latest terminal state and at most 64 pending entries.  At most 63
+ordinary requests are admitted, reserving the final slot for their cancellation.
+A further ordinary request is rejected before generation allocation and the
+buffer displays =Learning operation queue full=.  Collector append takes the
+same lock and first consumes
+every earlier control request, so
+a completed disable fence cannot be overwritten by rapid re-enable.  The
+collector rechecks the queue between bounded receive batches and before every
+transition, deletion, or re-enable.  Status publication uses a validated fixed
+temporary, =fsync=, atomic rename, and directory =fsync=.  The exact status
+object contains only =version= (=1=), =generation=, =operation=, and =state=.
+Valid sequences are =enable=: =pending, pausing, enabling, active|failed=;
+=disable=: =pending, pausing, disabled|failed=; =erase=: =pending, pausing,
+=erase-committing, erased-active|erased-inactive|failed=; and =cancel=: =pending, pausing,
+canceled|failed=.  A lower generation never replaces status, and UI callbacks
+accept only their allocated generation and operation.  The collector and
+keyboard accept only the current generation.  For enable, the collector
+sends =pause N=, waits for =paused N=, drains the finite queued datagrams to
+=EAGAIN= under the same 16-per-wake limit, sends =enable N=, and begins
+persistence only after =enabled N=.  Datagram ordering plus sender suppression
+makes every admitted observation post-opt-in.  For disable, marker removal
+stops persistence before the collector sends =pause N=; queued data is
+discarded.  An accepted cancel queue position is the storage fence: collector
+append consumes it before any later record and erase rechecks it before commit.
+The collector also completes a later =pause N= / =paused N= barrier to suppress
+sender serialization, but UI truth does not depend on an unavailable peer.
+Thus a delayed enable acknowledgement cannot reverse disable or a visible
+cancellation.
+
+Erase uses the same pause acknowledgement and complete drain.  Under the state
+lock it rechecks the ordered request queue, publishes =erase-committing=, and
+then deletes every managed capture artifact without another cancellation point.
+It publishes the actual terminal result after directory =fsync= and re-enables
+with the same generation only if the marker is still present, so pre-erase
+records cannot reappear after publication.  Successful re-enable publishes
+=erased-active=; a failed acknowledgement publishes =erased-inactive= and the UI
+reports =Learning data erased; enabled for next session; collector unavailable=.
+A cancel can win only before
+=erase-committing=.  At session start the same handshake enables an
+existing opt-in marker.  On timeout the newer =cancel= generation fences the
+timed-out operation and leaves observation disabled for the session; the
+collector rechecks it before any destructive step.  A failed or flooded
+handshake remains safely off and is visible in =show=.  Management commands
+never start or stop the collector.
+Collector death is visible in =show= but is not part of the required session
+heartbeat and cannot restart the UI or keyboard.
+
+* Reviewed tradeoffs
+
+Terra's simplicity pass proposed waiting for a terminal outcome and storing one
+record.  That would erase every already-observed decoder result when the process,
+seat, or surface disappears, and would make collector loss indistinguishable
+from censored keyboard transactions.  The initial gesture is itself a complete
+replay input, including a raw zero-candidate result.  Keeping the two-record
+protocol is therefore required for inspectable outcome-capture rather than a
+reliability mechanism; transport remains deliberately lossy.
+
+The collector and Elisp module install through the existing atomic OpenRC
+payload transaction.  The module loads with the other platform modules.  No
+Assist server or wire protocol changes are involved.
+
+* Verification
+
+Independent wvkbd scaffolding tests prove exact serialization bounds, escaping,
+candidate score fidelity, schema rejection, absent/full socket behavior, and
+sanitizer/fuzz safety without changing Wayland output.  Independent EmacsOS
+tests prove datagram validation, ID pairing, private modes and symlink refusal,
+malformed/oversized input rejection, exact dual-bound compaction, crash-safe
+export, immediate erase, and absence of payloads from stdout/stderr.
+
+Final integration tests cover every semantic transition, byte-for-byte
+identical Wayland output with observation enabled, disabled, or failing,
+collector death without UI death, install/update/rollback manifests, the exact
+keyboard process matcher, and default-off launch.  Required deterministic gates
+are the wvkbd test, sanitizer, dictionary, benchmark, and fuzz targets plus
+EmacsOS ERT, collector tests, PinePhone script suites, server baseline, and
+smoke because session boot wiring changes.
+
+Live acceptance explicitly enables capture and observes top commit, alternate
+selection, raw no-candidate left unattributed, explicit =Missing=, explicit
+=Misswipe=, retraction then re-swipe, ambiguous manual correction, and
+unresolved lifecycle loss.  The export must omit manual replacement and
+surrounding application text.  Disable and erase must take effect immediately.
+Storage and collector failures must not change swipe, tap, Backspace,
+punctuation, modifier, suggestion, suspend, hide/show, or session behavior.
+Replaying one export twice against the same pinned decoder and dictionary must
+produce identical rankings and scores.  This is replayability coverage, not an
+accuracy claim.
+
+* Expected paths
+
+The independent scaffold may touch =glide-learning.[ch]=, focused wvkbd tests,
+the standalone EmacsOS collector and tests, =swipe-learning.el= and its focused
+ERT tests, plus the two dated design records.  Final integration may additionally
+touch the landed ranked decoder interface, generated dictionary metadata,
+=main.c=, keyboard-owned suggestion transaction, CLI documentation, OpenRC
+session and installer payloads, exact manifests, Makefile install/test lists,
+and command documentation.
+
+The principal tradeoff is deliberate.  Self-contained geometry and separate
+gesture/resolution records cost more private storage, but preserve deterministic
+replay, honest ambiguity, crash-visible unresolved state, and lossless evidence
+about what the decoder actually did without collecting application content.

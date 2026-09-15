@@ -18,6 +18,11 @@ a feedback buzzer, led blinker, or anything that requires more than what's
 needed to input text quickly. The end product should be a static codebase that
 can be patched to add new features.
 
+The native *Hide* control immediately above the keyboard's bottom-right edge
+collapses it and leaves a bottom-right *Keyboard* tab. The tab reserves no
+application space and restores the keyboard from any focused application.
+Activation requires a press and matching release; sliding away cancels it.
+
 ## OPTIONS
 
 *-D*
@@ -46,16 +51,26 @@ can be patched to add new features.
 	popup remains input-empty.
 	Space remains a tap. Punctuation does not glide, but retains its tap and short
 	Control/Alt/Control+Alt modifier-swipe behavior; an unrecognized qualified
-	glide inserts nothing and shows =?= in the popup until the next ordinary input.
+	glide inserts nothing. Without a working private learning sink it shows =?=;
+	with a working sink supplied via *--glide-learning-fd 3* it instead shows
+	=Misswipe= and =Missing= choices for explicit local attribution. The next
+	ordinary input clears either surface.
 	A recognized word emits one trailing Space. Before another accepted keyboard
 	input, plain Backspace retracts that word and its Space. An explicit Space is
 	coalesced with the emitted separator, while ordinary punctuation replaces it.
+	Tapping Shift or CapsLock preserves the pending separator decision for the
+	following key.
 	External cursor or hardware edits are not observable.
 	The gesture threshold is the floor of 40% of the key height, with a 12-pixel
 	minimum. Upward/downward gestures require twice as much vertical as horizontal
 	movement; Control+Alt requires positive horizontal movement at least twice the
 	absolute vertical movement. This option disables hold repeat for character
 	keys and cannot be combined with *-O*.
+
+*--glide-learning-fd 3*
+	Send bounded private swipe-observation datagrams through inherited descriptor
+	3. The descriptor must be a connected unnamed Unix datagram socket. Invalid or
+	failed descriptors disable observation without affecting keyboard input.
 
 *-l* _layers_
 	comma separated list of layers in vertical/portrait mode.
@@ -120,13 +135,14 @@ can be patched to add new features.
 You can send signals to wvkbd to hide/show it (e.g. using _kill_(1) with _-s_):
 
 *SIGUSR1*
-	Hide the keyboard.
+	Fully hide the keyboard and its native visibility tab.
 
 *SIGUSR2*
-	Show the keyboard
+	Show the expanded keyboard and its native visibility control.
 
 *SIGRTMIN*
-	Toggle visibility
+	Toggle between fully hidden and expanded. A collapsed keyboard becomes fully
+	hidden.
 
 # COMPOSE BUTTON
 

@@ -1,0 +1,38 @@
+#+title: Swipe-learning runtime review amendments
+#+date: 2026-09-13
+
+* Lineage
+
+This record supersedes only the reviewed behavior and verification details in
+=2026-09-13-swipe-learning-runtime-integration.org=.
+
+* Accepted changes
+
+The capture-active no-candidate surface has exactly two full-width cells:
+=Misswipe= and =Missing=.  An ordinary input outside the strip clears the
+surface without inventing attribution.  Resolution rejects candidate versus
+no-candidate outcome mismatches without consuming the pending identity, and
+only a candidate gesture can become a correction.  Exact-unit Backspace keeps
+that correction pending through Shift and resolves it on the next text key or
+reswipe.  The final schema-valid gesture identifier is emitted; the following
+allocation attempt closes observation instead of wrapping to identifier zero.
+Output removal and fractional-scale lifecycle resets clear pending learning
+identity.
+
+The dictionary digest is exposed once by =glide.c=; =glide-learning.c= no
+longer compiles a second copy of the generated dictionary merely to read its
+digest.  The internal fd3 option is present in CLI help and remains exact.
+
+* Verification actually run
+
+Automated coverage includes exact fd3 acceptance and other-fd rejection,
+send-failure fail-off, maximum encoding, candidate/no-candidate outcome
+compatibility, overflow fail-off, two-cell right-edge attribution,
+outside-strip unresolved behavior, and Backspace then manual correction.  The
+existing pointer/touch suggestion, modifier, lifecycle, native, sanitizer,
+dictionary, benchmark, and EmacsOS cross-build gates remain required.  The
+learning fuzzer target links both the learning implementation and the single
+dictionary provider.  The paired EmacsOS contract remains immutable commit
+=498fb6b1ccb1c2a712249908aa0ec39d283d5d4a=, blob
+=94c8c99e3d289b0262c04de4a34fb75d579b1fbc=, content SHA-256
+=8dd13927fa7cd7813f9b949b50bc53854c23fb9e89105bde9d573d00b7ce7ad2=.

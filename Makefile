@@ -1,6 +1,6 @@
 include config.mk
 
-.PHONY: all clean format fuzz install test test-cli test-dictionary test-sanitize
+.PHONY: all clean format fuzz fuzz-learning install test test-cli test-dictionary test-sanitize
 
 NAME=wvkbd
 BIN?=${NAME}-${LAYOUT}
@@ -25,7 +25,7 @@ SOURCES = $(WVKBD_SOURCES) $(WAYLAND_SRC)
 
 SCDOC=scdoc
 DOCS = wvkbd.1
-TEST_BIN = tests/test-mod-swipe tests/test-glide tests/test-keyboard-glide tests/test-glide-geometry tests/test-main-glide-release tests/bench-glide
+TEST_BIN = tests/test-mod-swipe tests/test-glide tests/test-glide-learning tests/test-keyboard-glide tests/test-glide-geometry tests/test-main-glide-release tests/bench-glide
 TEST_CFLAGS ?= -std=c11 -Wall -Wextra -Werror -I.
 TEST_LDFLAGS ?=
 
@@ -48,11 +48,12 @@ ${BIN}: config.h $(OBJECTS) layout.${LAYOUT}.h
 	$(CC) -o $@ $(OBJECTS) $(LDFLAGS)
 
 clean:
-	rm -f $(OBJECTS) $(HDRS) $(WAYLAND_SRC) ${BIN} ${DOCS} ${TEST_BIN} tests/fuzz-glide
+	rm -f $(OBJECTS) $(HDRS) $(WAYLAND_SRC) ${BIN} ${DOCS} ${TEST_BIN} tests/fuzz-glide tests/fuzz-glide-learning
 
 test: config.h ${TEST_BIN} test-cli
 	./tests/test-mod-swipe
 	./tests/test-glide
+	./tests/test-glide-learning
 	./tests/test-keyboard-glide
 	./tests/test-glide-geometry
 	./tests/test-main-glide-release
@@ -64,13 +65,16 @@ tests/test-mod-swipe: config.h tests/test-mod-swipe.c mod-swipe.c mod-swipe.h gl
 tests/test-glide: config.h tests/test-glide.c glide.c glide.h glide-words-en.h
 	$(CC) $(TEST_CFLAGS) -o $@ tests/test-glide.c glide.c $(TEST_LDFLAGS)
 
-tests/test-keyboard-glide: config.h tests/test-keyboard-glide.c keyboard.c keyboard.h drw.c drw.h glide.h letters.c letters.h os-compatibility.c os-compatibility.h layout.${LAYOUT}.h keymap.${LAYOUT}.h $(HDRS)
+tests/test-glide-learning: tests/test-glide-learning.c glide-learning.c glide-learning.h glide.c glide.h glide-words-en.h
+	$(CC) $(TEST_CFLAGS) -D_GNU_SOURCE -o $@ tests/test-glide-learning.c glide-learning.c glide.c $(TEST_LDFLAGS)
+
+tests/test-keyboard-glide: config.h tests/test-keyboard-glide.c keyboard.c keyboard.h glide-learning.c glide-learning.h glide.c glide.h glide-words-en.h drw.c drw.h letters.c letters.h os-compatibility.c os-compatibility.h layout.${LAYOUT}.h keymap.${LAYOUT}.h $(HDRS)
 	$(CC) $(TEST_CFLAGS) -ffunction-sections -fdata-sections \
 		-DLAYOUT=\"layout.$(LAYOUT).h\" -DKEYMAP=\"keymap.$(LAYOUT).h\" \
 		-D_XOPEN_SOURCE=700 -DVERSION=\"$(VERSION)\" \
 		-Wno-unused-parameter -Wno-missing-field-initializers -Wno-sign-compare \
 		$(shell $(PKG_CONFIG) --cflags $(PKGS)) -o $@ \
-		tests/test-keyboard-glide.c keyboard.c drw.c letters.c os-compatibility.c \
+		tests/test-keyboard-glide.c keyboard.c glide-learning.c glide.c drw.c letters.c os-compatibility.c \
 		-Wl,--gc-sections -Wl,--wrap=wl_proxy_get_version \
 		-Wl,--wrap=wl_proxy_marshal_flags $(LDFLAGS) $(TEST_LDFLAGS)
 
@@ -84,13 +88,13 @@ tests/test-glide-geometry: config.h tests/test-glide-geometry.c keyboard.c keybo
 		-Wl,--gc-sections -Wl,--wrap=wl_proxy_get_version \
 		-Wl,--wrap=wl_proxy_marshal_flags $(TEST_LDFLAGS)
 
-tests/test-main-glide-release: config.h tests/test-main-glide-release.c main.c keyboard.h drw.h mod-swipe.c mod-swipe.h glide.c glide.h glide-words-en.h letters.c letters.h os-compatibility.h layout.${LAYOUT}.h keymap.${LAYOUT}.h $(HDRS) $(WAYLAND_SRC)
+tests/test-main-glide-release: config.h tests/test-main-glide-release.c main.c keyboard.h glide-learning.c glide-learning.h drw.h mod-swipe.c mod-swipe.h glide.c glide.h glide-words-en.h letters.c letters.h os-compatibility.h layout.${LAYOUT}.h keymap.${LAYOUT}.h $(HDRS) $(WAYLAND_SRC)
 	$(CC) $(TEST_CFLAGS) -ffunction-sections -fdata-sections \
 		-DLAYOUT=\"layout.$(LAYOUT).h\" -DKEYMAP=\"keymap.$(LAYOUT).h\" \
 		-D_XOPEN_SOURCE=700 -DVERSION=\"$(VERSION)\" \
 		-Wno-unused-parameter -Wno-missing-field-initializers -Wno-sign-compare \
 		$(shell $(PKG_CONFIG) --cflags $(PKGS)) -o $@ \
-		tests/test-main-glide-release.c mod-swipe.c glide.c letters.c $(WAYLAND_SRC) \
+		tests/test-main-glide-release.c mod-swipe.c glide.c glide-learning.c letters.c $(WAYLAND_SRC) \
 		-Wl,--gc-sections -Wl,--wrap=wl_proxy_get_version \
 		-Wl,--wrap=wl_proxy_marshal_flags -Wl,--wrap=wl_proxy_destroy \
 		-Wl,--wrap=wl_proxy_add_listener \
@@ -104,9 +108,10 @@ test-dictionary:
 
 test-sanitize:
 	$(MAKE) clean
-	$(MAKE) TEST_CFLAGS='-std=c11 -Wall -Wextra -Werror -I. -g -fsanitize=address,undefined -fno-sanitize-recover=undefined' TEST_LDFLAGS='-fsanitize=address,undefined' tests/test-mod-swipe tests/test-glide tests/test-keyboard-glide tests/test-glide-geometry tests/test-main-glide-release
+	$(MAKE) TEST_CFLAGS='-std=c11 -Wall -Wextra -Werror -I. -g -fsanitize=address,undefined -fno-sanitize-recover=undefined' TEST_LDFLAGS='-fsanitize=address,undefined' tests/test-mod-swipe tests/test-glide tests/test-glide-learning tests/test-keyboard-glide tests/test-glide-geometry tests/test-main-glide-release
 	ASAN_OPTIONS=detect_leaks=1 ./tests/test-mod-swipe
 	ASAN_OPTIONS=detect_leaks=1 ./tests/test-glide
+	ASAN_OPTIONS=detect_leaks=1 ./tests/test-glide-learning
 	# Pango/fontconfig retain process-global caches at exit, so leak detection is
 	# disabled for this whole harness; address and undefined checks remain active.
 	ASAN_OPTIONS=detect_leaks=0 ./tests/test-keyboard-glide
@@ -118,6 +123,12 @@ tests/fuzz-glide: config.h tests/fuzz-glide.c glide.c glide.h glide-words-en.h
 
 fuzz: config.h tests/fuzz-glide
 	ASAN_OPTIONS=detect_leaks=0 timeout --preserve-status 75 ./tests/fuzz-glide -max_total_time=60 -max_len=65 -timeout=2
+
+tests/fuzz-glide-learning: tests/fuzz-glide-learning.c glide-learning.c glide-learning.h glide.c glide.h glide-words-en.h
+	clang -std=c11 -Wall -Wextra -Werror -I. -g -fsanitize=fuzzer,address,undefined -o $@ tests/fuzz-glide-learning.c glide-learning.c glide.c
+
+fuzz-learning: tests/fuzz-glide-learning
+	ASAN_OPTIONS=detect_leaks=0 timeout --preserve-status 35 ./tests/fuzz-glide-learning -max_total_time=30 -max_len=4096 -timeout=2
 
 test-cli: config.h tests/test-cli.sh ${BIN}
 	tests/test-cli.sh ./${BIN}

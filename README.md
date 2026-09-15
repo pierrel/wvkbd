@@ -64,8 +64,17 @@ which you want and in what order you want to cycle through them using the
 `-l` parameter (or `--landscape-layers` for landscape mode). This takes takes a ordered comma separated list of layout names
 that are defined in your layout set.
 
-The keyboard can be hidden by sending it a `SIGUSR1` signal, shown again by sending it `SIGUSR2` or toggled by sending it `SIGRTMIN`.
-This saves some start up time and may be appropriate in some low-resource environments.
+The keyboard has a native `Hide` control immediately above its bottom-right
+edge. It collapses the keyboard without depending on the focused application
+and leaves a small bottom-right `Keyboard` tab that restores it. The tab has no
+exclusive zone, so the focused application regains the keyboard's screen area.
+Press and release the same control to activate it; sliding away cancels.
+
+The existing process controls are unchanged: `SIGUSR1` fully hides the keyboard
+and its tab, `SIGUSR2` shows the expanded keyboard, and `SIGRTMIN` toggles full
+visibility; from the collapsed state it fully hides the tab. `--hidden` starts
+with neither surface visible. These controls save
+some start up time and may be appropriate in low-resource environments.
 
 Wvkbd has an output mode `-o` that will echo its output to standard output. This facility can be used if users want
 audio/haptic feedback, a feature explicitly out of scope for wvkbd. To achieve this, simply pipe wvkbd's output through the external tool
@@ -96,15 +105,20 @@ that cell cancels selection, while returning before release restores it. Tapping
 an unused candidate cell dismisses the strip. The separate popup remains
 input-empty. Space remains a tap. Punctuation does not glide, but retains its tap
 and short Ctrl/Alt/Ctrl+Alt modifier-swipe behavior. An unrecognized qualified
-glide inserts nothing and shows `?` in the popup; the next ordinary input clears
-it. The gesture-takeover threshold is the floor of 40% of the key height, with a
-12-pixel minimum. Upward and downward gestures require at least twice as much
-vertical as horizontal movement; Ctrl+Alt requires positive horizontal movement
-at least twice the absolute vertical movement. Each recognized word emits one
+glide inserts nothing. Without a working private learning sink it shows `?` in
+the popup; with a working sink supplied via `--glide-learning-fd 3` it instead
+shows `Misswipe` and `Missing` choices for explicit local attribution. The next
+ordinary input clears either surface. The gesture-takeover threshold is the
+floor of 40% of the key height,
+with a 12-pixel minimum. Upward and downward gestures require at least twice as
+much vertical as horizontal movement; Ctrl+Alt requires positive horizontal
+movement at least twice the absolute vertical movement. Each recognized word
+emits one
 trailing Space. Before another accepted keyboard input, a plain Backspace
 retracts that word and its Space. An explicit Space is coalesced with the emitted
 separator, while ordinary punctuation replaces it, so both produce normal text.
-Tapping Shift preserves the pending separator decision for the following key.
+Tapping Shift or CapsLock preserves the pending separator decision for the
+following key.
 External focus, cursor, and hardware edits are not observable.
 
 This mode deliberately trades hold-to-repeat for modifier gestures on character
