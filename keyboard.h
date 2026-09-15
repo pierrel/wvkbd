@@ -24,7 +24,7 @@ enum key_type {
             // activates temporary keymap)
             // used for keys that are not part of the keymap
     Layout, // Layout switch to a specific layout
-    BackLayer, // Layout switch to the layout that was previously active
+    BackLayer, // Layout switch to the alphabetical fallback
     NextLayer, // Layout switch to the next layout in the layers sequence
     Compose,   // Compose modifier key, switches to a specific associated layout
                // upon next keypress
@@ -137,8 +137,8 @@ struct kbd {
     struct glide_learning_sink *learning;
     struct key *last_press;
     struct key *last_swipe;
-    struct layout *prevlayout; // the previous layout, needed to keep track of
-                               // keymap changes
+    struct layout *prevlayout; // the previous layout and its layer index
+    size_t prev_layer_index;
     size_t layer_index;
     struct layout *last_abc_layout; // the last alphabetical layout to fall back
                                     // to (may be further away than prevlayout)

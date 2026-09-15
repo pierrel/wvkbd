@@ -430,7 +430,7 @@ wl_touch_down(void *data, struct wl_touch *wl_touch, uint32_t serial,
         if (keyboard.compose) {
             keyboard.compose = 0;
             kbd_switch_layout(&keyboard, keyboard.prevlayout,
-                              keyboard.last_abc_index);
+                              keyboard.prev_layer_index);
         }
     }
 }
@@ -809,7 +809,7 @@ wl_pointer_button(void *data, struct wl_pointer *wl_pointer, uint32_t serial,
     if (!next_key && keyboard.compose) {
         keyboard.compose = 0;
         kbd_switch_layout(&keyboard, keyboard.prevlayout,
-                          keyboard.last_abc_index);
+                          keyboard.prev_layer_index);
         return;
     }
     cur_press = true;
@@ -1341,6 +1341,7 @@ flip_landscape()
     keyboard.layout = &keyboard.layouts[layer];
     keyboard.layer_index = 0;
     keyboard.prevlayout = keyboard.layout;
+    keyboard.prev_layer_index = 0;
     keyboard.last_abc_layout = keyboard.layout;
     keyboard.last_abc_index = 0;
 
@@ -1597,7 +1598,8 @@ cancel_active_input(uint32_t time)
 static void
 reset_input_lifecycle(uint32_t time)
 {
-    bool redraw_layout = keyboard.mods || keyboard.compose;
+    bool redraw_layout = keyboard.mods || keyboard.compose == 1;
+    bool restored_compose_layout = false;
 
     glide_learning_clear(&glide_learning);
     kbd_clear_glide_undo(&keyboard);
@@ -1608,11 +1610,19 @@ reset_input_lifecycle(uint32_t time)
             zwp_virtual_keyboard_v1_modifiers(keyboard.vkbd, NoMod, 0, 0, 0);
         }
     }
-    if (keyboard.compose) {
+    if (keyboard.compose >= 2) {
+        keyboard.compose = 0;
+        kbd_switch_layout(&keyboard, keyboard.prevlayout,
+                          keyboard.prev_layer_index);
+        restored_compose_layout = true;
+    } else if (keyboard.compose) {
         keyboard.compose = 0;
     }
-    if (redraw_layout && layer_surface && draw_surf.buf) {
-        kbd_draw_layout(&keyboard);
+    if (layer_surface && draw_surf.buf &&
+        (restored_compose_layout || redraw_layout)) {
+        if (!restored_compose_layout) {
+            kbd_draw_layout(&keyboard);
+        }
         drwsurf_flip(&draw_surf);
     }
 }
