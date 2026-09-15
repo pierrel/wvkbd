@@ -616,7 +616,7 @@ test_modified_release_disarms_glide_followup(void)
         assert(activated_key == &comma);
         assert(activated_mods == cases[i].modifiers);
         assert(!activation_saw_input_owner);
-        assert(!activation_saw_glide_undo);
+        assert(activation_saw_glide_undo);
         assert(key_presses == 1);
     }
 }

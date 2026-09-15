@@ -468,7 +468,11 @@ wl_touch_up(void *data, struct wl_touch *wl_touch, uint32_t serial,
             return;
         }
         if (result.deferred &&
-            (result.invalid || result.action != ModSwipePending)) {
+            (result.invalid ||
+             (result.action != ModSwipePending &&
+              result.action != ModSwipeControlCandidate &&
+              result.action != ModSwipeAltCandidate &&
+              result.action != ModSwipeControlAltCandidate))) {
             kbd_clear_glide_undo(&keyboard);
         }
         if (!result.deferred) {
