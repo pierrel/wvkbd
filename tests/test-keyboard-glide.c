@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 #include <linux/input-event-codes.h>
@@ -10,6 +11,7 @@
 
 #include "letters.h"
 #include "keyboard.h"
+#include "glide-learning.h"
 #include "proto/virtual-keyboard-unstable-v1-client-protocol.h"
 
 struct recorded_event {
@@ -650,6 +652,106 @@ test_candidate_zero_and_case_replacement(void)
     candidate_fixture_destroy(&fixture);
 }
 
+static void
+test_no_candidate_learning_choices_are_explicit_and_emit_no_keys(void)
+{
+    struct candidate_fixture fixture;
+    struct glide_learning_sink learning = {
+        .fd = -1,
+        .session = "0123456789abcdef0123456789abcdef",
+    };
+    char record[GLIDE_LEARNING_JSON_MAX];
+    int sockets[2];
+    ssize_t length;
+
+    assert(socketpair(AF_UNIX, SOCK_DGRAM, 0, sockets) == 0);
+    learning.fd = sockets[0];
+    learning.pending_gesture = 1;
+    candidate_fixture_init(&fixture);
+    fixture.keyboard.learning = &learning;
+
+    kbd_show_learning_choices(&fixture.keyboard);
+    assert(fixture.keyboard.candidates.count == 2);
+    assert(fixture.keyboard.candidates.learning_choices);
+    reset_events();
+    assert(kbd_candidate_touch_down(&fixture.keyboard, 1, 10, 30) ==
+           KbdCandidateClaimed);
+    assert(kbd_candidate_touch_up(&fixture.keyboard, 1, 1) == KbdCandidateOwned);
+    assert(event_count == 0);
+    length = recv(sockets[1], record, sizeof(record), 0);
+    assert(length > 0 && (size_t)length < sizeof(record));
+    record[length] = '\0';
+    assert(strstr(record, "\"outcome\":\"explicit-user-misswipe\""));
+
+    learning.pending_gesture = 2;
+    kbd_show_learning_choices(&fixture.keyboard);
+    assert(kbd_candidate_touch_down(&fixture.keyboard, 2, 250, 30) ==
+           KbdCandidateClaimed);
+    assert(kbd_candidate_touch_up(&fixture.keyboard, 2, 2) == KbdCandidateOwned);
+    assert(event_count == 0);
+    length = recv(sockets[1], record, sizeof(record), 0);
+    assert(length > 0 && (size_t)length < sizeof(record));
+    record[length] = '\0';
+    assert(strstr(record, "\"outcome\":\"explicit-lookup-failure\""));
+
+    learning.pending_gesture = 3;
+    kbd_show_learning_choices(&fixture.keyboard);
+    assert(kbd_candidate_touch_down(&fixture.keyboard, 3, 10, 400) ==
+           KbdCandidateMiss);
+    assert(fixture.keyboard.candidates.count == 0);
+    assert(!learning.pending_gesture);
+
+    learning.pending_gesture = 4;
+    kbd_show_learning_choices(&fixture.keyboard);
+    assert(kbd_candidate_touch_down(&fixture.keyboard, 4, 10, 30) ==
+           KbdCandidateClaimed);
+    assert(kbd_candidate_touch_motion(&fixture.keyboard, 4, 10, 400) ==
+           KbdCandidateOwned);
+    assert(kbd_candidate_touch_up(&fixture.keyboard, 4, 3) == KbdCandidateOwned);
+    assert(fixture.keyboard.candidates.count == 0);
+    assert(!learning.pending_gesture);
+    assert(event_count == 0);
+
+    close(sockets[0]);
+    close(sockets[1]);
+    candidate_fixture_destroy(&fixture);
+}
+
+static void
+test_retracted_glide_resolves_on_next_text_key(void)
+{
+    struct key backspace = {.type = Code, .code = KEY_BACKSPACE};
+    struct key letter = {.type = Code, .code = KEY_A};
+    struct glide_learning_sink learning = {
+        .fd = -1,
+        .session = "0123456789abcdef0123456789abcdef",
+        .pending_gesture = 1,
+        .pending_has_candidates = true,
+    };
+    struct kbd keyboard = {
+        .vkbd = (struct zwp_virtual_keyboard_v1 *)(uintptr_t)1,
+        .glide_undo_count = 4,
+        .learning = &learning,
+    };
+    char record[GLIDE_LEARNING_JSON_MAX];
+    int sockets[2];
+    ssize_t length;
+
+    assert(socketpair(AF_UNIX, SOCK_DGRAM, 0, sockets) == 0);
+    learning.fd = sockets[0];
+    assert(kbd_begin_glide_followup(&keyboard, &backspace, 9));
+    assert(keyboard.glide_undo_count == 0);
+    assert(learning.correction_pending);
+    assert(!kbd_begin_glide_followup(&keyboard, &letter, 10));
+    length = recv(sockets[1], record, sizeof(record), 0);
+    assert(length > 0 && (size_t)length < sizeof(record));
+    record[length] = '\0';
+    assert(strstr(record, "\"outcome\":\"manual-correction-ambiguous\""));
+    assert(!learning.pending_gesture);
+    close(sockets[0]);
+    close(sockets[1]);
+}
+
 int
 main(void)
 {
@@ -663,6 +765,8 @@ main(void)
     test_candidate_hit_testing_and_pointer_ownership();
     test_candidate_clear_resets_owned_session();
     test_candidate_zero_and_case_replacement();
+    test_no_candidate_learning_choices_are_explicit_and_emit_no_keys();
+    test_retracted_glide_resolves_on_next_text_key();
     puts("keyboard glide tests passed");
     return 0;
 }

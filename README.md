@@ -64,8 +64,17 @@ which you want and in what order you want to cycle through them using the
 `-l` parameter (or `--landscape-layers` for landscape mode). This takes takes a ordered comma separated list of layout names
 that are defined in your layout set.
 
-The keyboard can be hidden by sending it a `SIGUSR1` signal, shown again by sending it `SIGUSR2` or toggled by sending it `SIGRTMIN`.
-This saves some start up time and may be appropriate in some low-resource environments.
+The keyboard has a native `Hide` control immediately above its bottom-right
+edge. It collapses the keyboard without depending on the focused application
+and leaves a small bottom-right `Keyboard` tab that restores it. The tab has no
+exclusive zone, so the focused application regains the keyboard's screen area.
+Press and release the same control to activate it; sliding away cancels.
+
+The existing process controls are unchanged: `SIGUSR1` fully hides the keyboard
+and its tab, `SIGUSR2` shows the expanded keyboard, and `SIGRTMIN` toggles full
+visibility; from the collapsed state it fully hides the tab. `--hidden` starts
+with neither surface visible. These controls save
+some start up time and may be appropriate in low-resource environments.
 
 Wvkbd has an output mode `-o` that will echo its output to standard output. This facility can be used if users want
 audio/haptic feedback, a feature explicitly out of scope for wvkbd. To achieve this, simply pipe wvkbd's output through the external tool

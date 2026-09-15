@@ -7,6 +7,7 @@
 #include <ctype.h>
 #include "keyboard.h"
 #include "glide.h"
+#include "glide-learning.h"
 #include "letters.h"
 #include "drw.h"
 #include "os-compatibility.h"
@@ -859,6 +860,15 @@ kbd_clear_candidates(struct kbd *kb)
     kbd_redraw_candidates(kb);
 }
 
+void
+kbd_show_learning_choices(struct kbd *kb)
+{
+    kbd_reset_candidates(kb);
+    kb->candidates.count = 2;
+    kb->candidates.learning_choices = true;
+    kbd_redraw_candidates(kb);
+}
+
 bool
 kbd_commit_glide_result(struct kbd *kb, const struct glide_result *result,
                         uint32_t time)
@@ -890,7 +900,9 @@ kbd_commit_glide_result(struct kbd *kb, const struct glide_result *result,
 static uint32_t
 kbd_candidate_boundary(const struct kbd *kb, size_t slot)
 {
-    return (uint32_t)((uint64_t)slot * kb->w / GLIDE_MAX_MATCHES);
+    size_t slots = kb->candidates.learning_choices ? 2 : GLIDE_MAX_MATCHES;
+
+    return (uint32_t)((uint64_t)slot * kb->w / slots);
 }
 
 static int
@@ -901,12 +913,13 @@ kbd_candidate_slot(const struct kbd *kb, int32_t x, int32_t y)
         (uint32_t)x >= kb->w || (uint32_t)y >= kb->layout->keyheight) {
         return -1;
     }
-    for (size_t slot = 1; slot < GLIDE_MAX_MATCHES; slot++) {
+    size_t slots = kb->candidates.learning_choices ? 2 : GLIDE_MAX_MATCHES;
+    for (size_t slot = 1; slot < slots; slot++) {
         if ((uint32_t)x < kbd_candidate_boundary(kb, slot)) {
             return (int)slot - 1;
         }
     }
-    return GLIDE_MAX_MATCHES - 1;
+    return (int)slots - 1;
 }
 
 static enum kbd_candidate_event
@@ -924,9 +937,18 @@ kbd_candidate_begin(struct kbd *kb, enum kbd_candidate_owner owner,
     }
     slot = kbd_candidate_slot(kb, x, y);
     if (slot < 0) {
+        if (kb->candidates.learning_choices) {
+            glide_learning_clear(kb->learning);
+            kbd_reset_candidates(kb);
+            kbd_redraw_candidates(kb);
+        }
         return KbdCandidateMiss;
     }
     if ((size_t)slot >= kb->candidates.count) {
+        if (!kb->candidates.learning_choices) {
+            glide_learning_resolve(kb->learning, GLIDE_LEARNING_TOP_COMMITTED,
+                                   0);
+        }
         kbd_reset_candidates(kb);
         kbd_redraw_candidates(kb);
         return KbdCandidateDismissed;
@@ -982,7 +1004,9 @@ kbd_candidate_release(struct kbd *kb, enum kbd_candidate_owner owner,
     uint32_t codes[GLIDE_MAX_WORD];
     uint8_t case_mods;
     uint8_t undo_count;
+    size_t selected_slot;
     bool commit;
+    bool learning_choices;
 
     if (!kb->candidates.count ||
         kb->candidates.owner == KbdCandidateOwnerNone) {
@@ -994,15 +1018,36 @@ kbd_candidate_release(struct kbd *kb, enum kbd_candidate_owner owner,
     commit = use_coordinates ? kbd_candidate_slot(kb, x, y) ==
                                    (int)kb->candidates.pressed_slot
                              : kb->candidates.pressed_inside;
-    selected = kb->candidates.matches[kb->candidates.pressed_slot];
+    selected_slot = kb->candidates.pressed_slot;
     case_mods = kb->candidates.case_mods;
     undo_count = kb->glide_undo_count;
+    learning_choices = kb->candidates.learning_choices;
+    if (!learning_choices)
+        selected = kb->candidates.matches[selected_slot];
     kbd_reset_candidates(kb);
+    if (learning_choices) {
+        if (commit) {
+            glide_learning_resolve(
+                kb->learning,
+                selected_slot == 0 ? GLIDE_LEARNING_EXPLICIT_USER_MISSWIPE
+                                   : GLIDE_LEARNING_EXPLICIT_LOOKUP_FAILURE,
+                0);
+        } else {
+            glide_learning_clear(kb->learning);
+        }
+        kbd_redraw_candidates(kb);
+        return KbdCandidateOwned;
+    }
     if (commit && kbd_ascii_word_codes(selected.word, selected.length, codes)) {
         kbd_clear_glide_undo(kb);
         kbd_emit_backspaces(kb, undo_count, time, false);
         kbd_emit_ascii_word_case(kb, selected.word, selected.length, codes,
                                  time, case_mods, false);
+        glide_learning_resolve(
+            kb->learning,
+            selected_slot ? GLIDE_LEARNING_ALTERNATE_SELECTED
+                          : GLIDE_LEARNING_TOP_COMMITTED,
+            selected_slot + 1);
     }
     kbd_redraw_candidates(kb);
     return KbdCandidateOwned;
@@ -1067,7 +1112,7 @@ kbd_begin_glide_followup(struct kbd *kb, const struct key *key, uint32_t time)
 {
     uint8_t count = kb->glide_undo_count;
 
-    if (!count || count > GLIDE_MAX_WORD + 1 || !key || kb->compose ||
+    if (!key || kb->compose ||
         (kb->mods & (Ctrl | Alt | Super | AltGr))) {
         kbd_clear_glide_undo(kb);
         return false;
@@ -1075,7 +1120,14 @@ kbd_begin_glide_followup(struct kbd *kb, const struct key *key, uint32_t time)
     if (key->type == Mod && key->code == Shift) {
         return false;
     }
+    if (key->type == Code)
+        glide_learning_resolve_correction(kb->learning, false);
+    if (!count || count > GLIDE_MAX_WORD + 1) {
+        kbd_clear_glide_undo(kb);
+        return false;
+    }
     if (key->type != Code) {
+        glide_learning_resolve(kb->learning, GLIDE_LEARNING_TOP_COMMITTED, 0);
         kbd_clear_glide_undo(kb);
         return false;
     }
@@ -1084,15 +1136,18 @@ kbd_begin_glide_followup(struct kbd *kb, const struct key *key, uint32_t time)
     if (key->code == KEY_BACKSPACE && key->code_mod == NoMod &&
         !(kb->mods & Shift)) {
         kbd_emit_backspaces(kb, count, time, true);
+        glide_learning_mark_retracted(kb->learning);
         return true;
     }
     if (key->code == KEY_SPACE && key->code_mod == NoMod &&
         !(kb->mods & Shift)) {
+        glide_learning_resolve(kb->learning, GLIDE_LEARNING_TOP_COMMITTED, 0);
         return true;
     }
     if (kbd_is_word_punctuation(kb, key)) {
         kbd_emit_backspaces(kb, 1, time, true);
     }
+    glide_learning_resolve(kb->learning, GLIDE_LEARNING_TOP_COMMITTED, 0);
     return false;
 }
 
@@ -1105,7 +1160,8 @@ kbd_draw_candidates(struct kbd *kb)
     if (!kb->candidates.count || !height) {
         return;
     }
-    for (size_t i = 0; i < GLIDE_MAX_MATCHES; i++) {
+    size_t slots = kb->candidates.learning_choices ? 2 : GLIDE_MAX_MATCHES;
+    for (size_t i = 0; i < slots; i++) {
         uint32_t x = kbd_candidate_boundary(kb, i);
         uint32_t end = kbd_candidate_boundary(kb, i + 1);
         uint32_t width = end - x;
@@ -1117,7 +1173,12 @@ kbd_draw_candidates(struct kbd *kb)
 
         draw_inset(kb->surf, x, 0, width, height, KBD_KEY_BORDER, color,
                    scheme->rounding);
-        if (i < kb->candidates.count) {
+        if (kb->candidates.learning_choices && i < 2) {
+            const char *label = i ? "Missing" : "Misswipe";
+            drw_draw_text_bounded(kb->surf, scheme->text, x, 0, width, height,
+                                  KBD_KEY_BORDER, label, (int)strlen(label),
+                                  scheme->font_description);
+        } else if (i < kb->candidates.count) {
             char label[GLIDE_MAX_WORD];
             const struct glide_match *match = &kb->candidates.matches[i];
 

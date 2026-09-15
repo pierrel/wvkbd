@@ -4,6 +4,8 @@
 #include "glide.h"
 #include "glide-words-en.h"
 
+const char glide_dictionary_sha256[] = GLIDE_DICTIONARY_SHA256;
+
 _Static_assert(sizeof(glide_word_bytes) + sizeof(glide_buckets) <= 256 * 1024,
                "glide dictionary payload exceeds its bound");
 
@@ -141,7 +143,7 @@ keep_match(struct ranked_match matches[GLIDE_MAX_MATCHES], size_t *count,
         matches[i] = matches[i - 1];
     }
     matches[position] = (struct ranked_match){
-        .match = {.word = word, .length = length},
+        .match = {.word = word, .length = length, .score = error},
         .error = error,
     };
 }

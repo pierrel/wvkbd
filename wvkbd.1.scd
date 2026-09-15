@@ -18,6 +18,11 @@ a feedback buzzer, led blinker, or anything that requires more than what's
 needed to input text quickly. The end product should be a static codebase that
 can be patched to add new features.
 
+The native *Hide* control immediately above the keyboard's bottom-right edge
+collapses it and leaves a bottom-right *Keyboard* tab. The tab reserves no
+application space and restores the keyboard from any focused application.
+Activation requires a press and matching release; sliding away cancels it.
+
 ## OPTIONS
 
 *-D*
@@ -120,13 +125,14 @@ can be patched to add new features.
 You can send signals to wvkbd to hide/show it (e.g. using _kill_(1) with _-s_):
 
 *SIGUSR1*
-	Hide the keyboard.
+	Fully hide the keyboard and its native visibility tab.
 
 *SIGUSR2*
-	Show the keyboard
+	Show the expanded keyboard and its native visibility control.
 
 *SIGRTMIN*
-	Toggle visibility
+	Toggle between fully hidden and expanded. A collapsed keyboard becomes fully
+	hidden.
 
 # COMPOSE BUTTON
 
