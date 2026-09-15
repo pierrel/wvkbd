@@ -1114,6 +1114,10 @@ kbd_begin_glide_followup(struct kbd *kb, const struct key *key, uint32_t time)
 
     if (!key || kb->compose ||
         (kb->mods & (Ctrl | Alt | Super | AltGr))) {
+        if (count && count <= GLIDE_MAX_WORD + 1) {
+            glide_learning_resolve(kb->learning,
+                                   GLIDE_LEARNING_TOP_COMMITTED, 0);
+        }
         kbd_clear_glide_undo(kb);
         return false;
     }

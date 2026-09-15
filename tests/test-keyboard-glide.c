@@ -759,6 +759,38 @@ test_retracted_glide_resolves_on_next_text_key(void)
     close(sockets[1]);
 }
 
+static void
+test_modified_glide_followup_commits_top_candidate(void)
+{
+    struct key letter = {.type = Code, .code = KEY_A};
+    struct glide_learning_sink learning = {
+        .fd = -1,
+        .session = "0123456789abcdef0123456789abcdef",
+        .pending_gesture = 1,
+        .pending_has_candidates = true,
+    };
+    struct kbd keyboard = {
+        .mods = Ctrl,
+        .glide_undo_count = 4,
+        .learning = &learning,
+    };
+    char record[GLIDE_LEARNING_JSON_MAX];
+    int sockets[2];
+    ssize_t length;
+
+    assert(socketpair(AF_UNIX, SOCK_DGRAM, 0, sockets) == 0);
+    learning.fd = sockets[0];
+    assert(!kbd_begin_glide_followup(&keyboard, &letter, 9));
+    assert(keyboard.glide_undo_count == 0);
+    length = recv(sockets[1], record, sizeof(record), 0);
+    assert(length > 0 && (size_t)length < sizeof(record));
+    record[length] = '\0';
+    assert(strstr(record, "\"outcome\":\"top-committed\""));
+    assert(!learning.pending_gesture);
+    close(sockets[0]);
+    close(sockets[1]);
+}
+
 int
 main(void)
 {
@@ -774,6 +806,7 @@ main(void)
     test_candidate_zero_and_case_replacement();
     test_no_candidate_learning_choices_are_explicit_and_emit_no_keys();
     test_retracted_glide_resolves_on_next_text_key();
+    test_modified_glide_followup_commits_top_candidate();
     puts("keyboard glide tests passed");
     return 0;
 }
