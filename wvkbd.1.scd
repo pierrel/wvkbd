@@ -58,6 +58,8 @@ Activation requires a press and matching release; sliding away cancels it.
 	A recognized word emits one trailing Space. Before another accepted keyboard
 	input, plain Backspace retracts that word and its Space. An explicit Space is
 	coalesced with the emitted separator, while ordinary punctuation replaces it.
+	Tapping Shift or CapsLock preserves the pending separator decision for the
+	following key.
 	External cursor or hardware edits are not observable.
 	The gesture threshold is the floor of 40% of the key height, with a 12-pixel
 	minimum. Upward/downward gestures require twice as much vertical as horizontal

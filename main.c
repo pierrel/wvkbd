@@ -489,6 +489,7 @@ wl_touch_up(void *data, struct wl_touch *wl_touch, uint32_t serial,
             struct glide_result matches;
             struct glide_geometry geometry;
             bool emitted = false;
+            bool observed;
 
             if (!result.invalid && result.endpoint_mapped &&
                 kbd_glide_geometry(&keyboard, &geometry)) {
@@ -502,15 +503,10 @@ wl_touch_up(void *data, struct wl_touch *wl_touch, uint32_t serial,
                 }
                 emitted =
                     kbd_commit_glide_result(&keyboard, &matches, result.time);
-                if (emitted) {
-                    glide_learning_observe(&glide_learning, result.trace,
-                                           result.trace_points,
-                                           result.trace_length, &geometry,
-                                           &matches);
-                } else if (glide_learning_observe(
-                               &glide_learning, result.trace,
-                               result.trace_points, result.trace_length,
-                               &geometry, &matches)) {
+                observed = glide_learning_observe(
+                    &glide_learning, result.trace, result.trace_points,
+                    result.trace_length, &geometry, &matches);
+                if (!emitted && observed) {
                     kbd_show_learning_choices(&keyboard);
                     emitted = true;
                 }
