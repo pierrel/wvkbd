@@ -562,10 +562,13 @@ test_candidate_hit_testing_and_pointer_ownership(void)
     assert(kbd_commit_glide_result(keyboard, &result, 1));
     reset_events();
     assert(kbd_candidate_touch_down(keyboard, 1, -1, 0) == KbdCandidateMiss);
+    assert(keyboard->candidates.count == 0);
+    assert(keyboard->glide_undo_count == 6);
     assert(kbd_candidate_touch_down(keyboard, 1, 0, -1) == KbdCandidateMiss);
     assert(kbd_candidate_touch_down(keyboard, 1, 301, 0) == KbdCandidateMiss);
     assert(kbd_candidate_touch_down(keyboard, 1, 0, 60) == KbdCandidateMiss);
-    assert(keyboard->candidates.count == 2);
+    assert(kbd_commit_glide_result(keyboard, &result, 1));
+    reset_events();
     assert(kbd_candidate_touch_down(keyboard, 1, 250, 30) ==
            KbdCandidateDismissed);
     assert(keyboard->candidates.count == 0);

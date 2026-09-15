@@ -1526,8 +1526,6 @@ show()
         return;
     }
 
-    wl_display_sync(display);
-
     visibility = VisibilityExpanded;
     flip_landscape();
 

@@ -939,9 +939,9 @@ kbd_candidate_begin(struct kbd *kb, enum kbd_candidate_owner owner,
     if (slot < 0) {
         if (kb->candidates.learning_choices) {
             glide_learning_clear(kb->learning);
-            kbd_reset_candidates(kb);
-            kbd_redraw_candidates(kb);
         }
+        kbd_reset_candidates(kb);
+        kbd_redraw_candidates(kb);
         return KbdCandidateMiss;
     }
     if ((size_t)slot >= kb->candidates.count) {
