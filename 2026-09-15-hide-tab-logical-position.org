@@ -1,0 +1,23 @@
+#+title: Native Hide tab logical positioning correction
+#+date: 2026-09-15
+
+* Historical supersessions
+
+This corrects the expanded-surface margin mechanism in
+=2026-09-14-native-hide-tab.org=, section "Surface model".  The requested
+keyboard height is already in layer-shell logical coordinates.  The
+compositor-configured keyboard surface height observed on the scaled phone may
+differ and must not be reused as a layer-shell margin; rendering buffers are
+scaled separately.
+
+* Correction
+
+The expanded =Hide= surface always uses the current requested keyboard height
+as its bottom margin.  Orientation changes already replace that value with the
+configured portrait or landscape height before repositioning the control.
+Collapsed state continues to use a zero margin.
+
+The regression test deliberately supplies a compositor-configured surface
+height twice the requested logical height.  It requires the smaller requested
+value, then checks an orientation-sized replacement and the collapsed zero
+margin.

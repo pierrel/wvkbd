@@ -1,0 +1,16 @@
+#+title: Swipe learning scaffold status
+#+date: 2026-09-13
+
+* Current state
+
+The independent swipe-learning candidate does not install or load the collector
+or Emacs Lisp module.  It adds bounded serialization, collection, storage, user
+controls, and their tests without connecting them to wvkbd, the phone session,
+or swipe suggestions.  Installation and loading remain part of final integration.
+
+* Historical supersessions
+
+- This note supersedes only the installation statement in
+  =2026-09-12-swipe-learning-capture.org=, section =Reviewed tradeoffs=.  That
+  statement described the planned final integration.  The current independent
+  scaffold intentionally provides no installation or module-loading path.

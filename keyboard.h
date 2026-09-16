@@ -14,6 +14,7 @@ struct clr_scheme;
 struct key;
 struct layout;
 struct kbd;
+struct glide_learning_sink;
 
 enum key_type {
     Pad = 0, // Padding, not a pressable key
@@ -114,6 +115,7 @@ struct kbd_candidate_session {
     bool pressed_inside;
     int32_t touch_id;
     uint32_t pointer_button;
+    bool learning_choices;
 };
 
 struct kbd {
@@ -132,6 +134,7 @@ struct kbd {
     uint8_t compose;
     uint8_t glide_undo_count;
     struct kbd_candidate_session candidates;
+    struct glide_learning_sink *learning;
     struct key *last_press;
     struct key *last_swipe;
     struct layout *prevlayout; // the previous layout, needed to keep track of
@@ -194,6 +197,7 @@ enum kbd_candidate_event kbd_candidate_pointer_button(struct kbd *kb,
 enum kbd_candidate_event kbd_candidate_pointer_motion(struct kbd *kb, int32_t x,
                                                       int32_t y);
 void kbd_clear_candidates(struct kbd *kb);
+void kbd_show_learning_choices(struct kbd *kb);
 bool kbd_begin_glide_followup(struct kbd *kb, const struct key *key,
                               uint32_t time);
 void kbd_clear_glide_undo(struct kbd *kb);

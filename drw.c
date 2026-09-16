@@ -7,17 +7,41 @@
 #include "math.h"
 
 void
-drwsurf_resize(struct drwsurf *ds, uint32_t w, uint32_t h, double s)
+drwsurf_reset(struct drwsurf *ds)
 {
+    if (ds->layout) {
+        g_object_unref(ds->layout);
+        ds->layout = NULL;
+    }
+    if (ds->cairo) {
+        cairo_destroy(ds->cairo);
+        ds->cairo = NULL;
+    }
     if (ds->buf) {
         munmap(ds->pool_data, ds->size);
         wl_buffer_destroy(ds->buf);
         ds->buf = NULL;
     }
+    ds->pool_data = NULL;
+    ds->width = ds->height = ds->size = 0;
+    ds->scale = 0;
+}
+
+void
+drwsurf_resize(struct drwsurf *ds, uint32_t w, uint32_t h, double s)
+{
+    uint32_t width = ceil(w * s);
+    uint32_t height = ceil(h * s);
+
+    if (ds->buf && ds->width == width && ds->height == height &&
+        ds->scale == s) {
+        return;
+    }
+    drwsurf_reset(ds);
 
     ds->scale = s;
-    ds->width = ceil(w * s);
-    ds->height = ceil(h * s);
+    ds->width = width;
+    ds->height = height;
 
     setup_buffer(ds);
 }
@@ -182,6 +206,7 @@ setup_buffer(struct drwsurf *drwsurf)
         drwsurf->height, stride);
 
     drwsurf->cairo = cairo_create(s);
+    cairo_surface_destroy(s);
     cairo_scale(drwsurf->cairo, drwsurf->scale, drwsurf->scale);
     cairo_set_antialias(drwsurf->cairo, CAIRO_ANTIALIAS_NONE);
     drwsurf->layout = pango_cairo_create_layout(drwsurf->cairo);

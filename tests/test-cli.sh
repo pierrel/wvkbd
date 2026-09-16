@@ -9,6 +9,19 @@ trap 'rm -rf -- "$scratch"' EXIT HUP INT TERM
 "$binary" --help >"$scratch/help" 2>&1
 grep -F -- '--mod-swipe - Tap, Ctrl/Alt/Ctrl+Alt swipes, or glide Latin letters' \
     "$scratch/help" >/dev/null
+grep -F -- '--glide-learning-fd 3 - Send private swipe observations on fd 3' \
+    "$scratch/help" >/dev/null
+if "$binary" --glide-learning-fd 4 >"$scratch/learning-invalid" 2>&1; then
+    printf '%s\n' 'non-fd3 learning transport was accepted' >&2
+    exit 1
+fi
+grep -F 'usage:' "$scratch/learning-invalid" >/dev/null
+if XDG_RUNTIME_DIR="$scratch" WAYLAND_DISPLAY=missing \
+    "$binary" --glide-learning-fd 3 >"$scratch/learning-valid" 2>&1; then
+    printf '%s\n' 'learning fd3 unexpectedly exited without a display' >&2
+    exit 1
+fi
+grep -F 'Failed to create display' "$scratch/learning-valid" >/dev/null
 if "$binary" --mod-swipe -O >"$scratch/incompatible" 2>&1; then
     printf '%s\n' 'incompatible output mode was accepted' >&2
     exit 1

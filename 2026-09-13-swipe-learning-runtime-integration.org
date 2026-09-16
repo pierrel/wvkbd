@@ -1,0 +1,118 @@
+#+title: Swipe-learning runtime integration
+#+date: 2026-09-13
+
+* State
+
+Design pending implementation and review.  The paired EmacsOS design owns the
+launcher, epoch marker, collector, user controls, installation, and rollback.
+This record owns the keyboard CLI, serialization, semantic hooks, UI, and tests.
+
+* Lineage
+
+This design follows =2026-09-12-swipe-learning-capture.org= and
+=2026-09-13-swipe-learning-scaffold-status.org=.  It activates the reviewed
+scaffold after the ranked-suggestion owner is composed.
+
+* Historical supersessions
+
+This record replaces the keyboard portions of
+=2026-09-12-swipe-learning-capture.org= sections =Goal and evidence rule=,
+=Keyboard ownership and dependency=, =Lossy transport by construction=, and
+=Verification=: it owns the changed keyboard transitions, no-candidate UI,
+one-way transport production, and their tests.  The pinned immutable EmacsOS
+record replaces that predecessor's =Record schema=, =User controls=, and =Final
+EmacsOS integration= sections and owns the collector, privacy boundary,
+lifecycle, controls, install, and rollback.  The former bidirectional generation
+protocol, 125 ms control-poll backoff, and local-emission-rejected observation
+are removed.  Runtime uses a one-way launcher-selected socket and permanently
+fails observation off on send or peer failure.  Capture-active no-candidate
+feedback has exactly two explicit actions, =Missing= and =Misswipe=; =Dismiss=
+is removed and an ordinary next action leaves the episode unattributed.  The
+lossy no-effect rule remains authoritative.
+
+* 1. Exact source and CLI
+
+Start at exact merged target
+=57d1c25eb3f32da7a5b0d1bed9efa201c906b020= (reviewed tree
+=8ab8133e0326d7abe3f1b6602adf3fc6f3f68b3e=) and apply learning delta
+=f2a9c77..e0c7f00=.  Resolve only the observed =Makefile= union.  Parse exact
+optional =--glide-learning-fd 3= and validate that inherited fd as an unnamed,
+connected Unix datagram socket.  No option creates no observation state.
+An invalid descriptor disables observation without affecting startup.
+
+The sink begins active because only the marker-valid launcher supplies it.  A
+send is one bounded nonblocking, no-retry datagram.  Any send/peer error closes
+the fd and permanently disables observation.  There is no learning poll source,
+control protocol, timer, allocation on send, or payload/error logging.
+
+* 2. Identity and wire ownership
+
+=struct glide_match= exposes the exact unsigned 64-bit score already computed
+by =glide.c=; learning never rescores or reorders.  Generated dictionary output
+contains its stable source SHA-256 and the decoder exposes =geometry-v1=.  At
+process start =main.c= performs one 128-bit =getrandom(..., GRND_NONBLOCK)=
+read.  Error, =EAGAIN=, or short read closes learning without retry.  It
+allocates gesture IDs monotonically from 1 before each qualified glide is
+serialized; overflow permanently closes learning.
+
+The immutable EmacsOS commit/blob named below is the sole wire-schema and
+privacy authority.  wvkbd owns only production of the keyboard-observed fields
+and their semantic timing.  A gesture provides session/gesture ID, algorithm
+and dictionary IDs, trace/points/geometry/key height, up to three exact ranked
+words/scores, and =top-queued= or =no-candidate=.  Local pre-emission rejection
+is dropped.  If gesture send fails, the episode is not armed and no orphan
+resolution is sent.
+
+* 3. Owner-provided semantic seam
+
+The candidate owner exposes one optional observer and calls it while it still
+owns the state required by each payload:
+
+1. after top word and separator requests are queued, provide the exact gesture,
+   geometry, candidates, scores, and =top-queued= boundary;
+2. after rank-two/three replacement requests are queued, provide selected rank;
+   after rank-one replacement or blank-cell dismissal retaining the top unit,
+   provide top-committed before later input;
+3. after exact-unit Backspace retraction, mark correction pending.  Before the
+   next qualified glide gesture send, resolve the old identity
+   =retracted-then-reswiped=.  Before the next non-glide text action, resolve it
+   =manual-correction-ambiguous= without that text;
+4. do not resolve on Shift or another action whose existing follow-up
+   disposition leaves retraction armed.  Resolve top-committed only when that
+   disposition actually disarms the unit without retracting;
+5. after a qualified zero-result decode, send =no-candidate= before opening the
+   capture-only candidate surface.  Open it only when that datagram succeeds;
+   otherwise use unchanged capture-off question-mark feedback.  The surface is
+   two equal-width cells spanning the full top row, left =Misswipe= and right
+   =Missing=, using the
+   existing candidate strip's touch/pointer ownership and release rules.  They
+   resolve explicit user-misswipe and lookup-failure respectively.  An input
+   beginning outside both cells closes the surface without attribution and
+   continues through ordinary dispatch, including existing Shift/follow-up
+   behavior.  Capture-off keeps the current question-mark feedback; and
+6. lifecycle loss clears observer state without inventing a resolution.
+
+Old resolution send is attempted before a new gesture send.  Observer calls
+carry stable gesture identity and rank explicitly and occur before candidate
+state resets, so =main.c= never reconstructs consumed state.  Learning does not
+own a second suggestion touch state machine and never receives manually typed
+or surrounding application text.
+
+* 4. Verification
+
+Tests cover exact optional fd3 parsing/validation; default off; nonblocking
+entropy fail-off; send/peer-error permanent fail-off; score, algorithm, and
+generated dictionary identity; maximum encoding; dropped gesture suppressing
+resolution; monotonic gesture identity and overflow fail-off;
+rank-one/two/three and blank-dismiss ordering; Shift preserving
+retraction; Backspace then reswipe/manual correction; capture-only
+Missing/Misswipe equal-cell hit testing, send-failure fallback, outside-input
+ordinary dispatch with attribution absent, unchanged capture-off UI, and
+lifecycle-unresolved behavior.  Existing native, sanitizer, dictionary,
+suggestion, modifier, fuzz, and benchmark gates remain required.
+
+The paired EmacsOS contract is immutable commit
+=498fb6b1ccb1c2a712249908aa0ec39d283d5d4a=, blob
+=94c8c99e3d289b0262c04de4a34fb75d579b1fbc=, and content SHA-256
+=8dd13927fa7cd7813f9b949b50bc53854c23fb9e89105bde9d573d00b7ce7ad2=.
+Final EmacsOS then pins this repository's exact resulting commit.

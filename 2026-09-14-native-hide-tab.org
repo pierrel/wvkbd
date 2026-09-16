@@ -1,0 +1,137 @@
+#+title: Native keyboard hide and restore tab
+#+date: 2026-09-14
+
+* Status
+
+Accepted design for implementation.  The control belongs to the wvkbd process,
+so it works in Emacs, Firefox, and Android without application-specific commands.
+
+* Lineage
+
+This follows =2026-09-08-glide-modifier-keyboard.org=.  That design required
+hide/show lifecycle boundaries to balance gesture state, but left visibility
+under signals and external session controls.  This design adds an ordinary
+on-screen visibility control while preserving those interfaces.
+
+* User flow
+
+1. While the keyboard is expanded, a small =Hide= control sits immediately
+   above its bottom-right edge.
+2. Pressing and releasing that control collapses the keyboard.  Applications
+   regain the keyboard's exclusive screen area.  A small =Keyboard= tab remains
+   at the bottom-right of the display.
+3. Pressing and releasing the tab restores the keyboard and changes the control
+   back to =Hide=.
+
+The control is implemented by wvkbd itself, not by Emacs or another application.
+It therefore remains available while Firefox or an Android application has
+focus.
+
+* Surface model
+
+Keep the existing keyboard layer surface unchanged.  Add one small overlay
+layer surface owned by the same process:
+
+- expanded: label =Hide=, anchored bottom-right with its bottom margin equal to
+  the keyboard height;
+- collapsed: label =Keyboard=, anchored at the bottom-right with zero margin;
+- always: no exclusive zone, so only the existing expanded keyboard reserves
+  application space.
+
+One explicit visibility enum owns the three possible states: =FullyHidden=,
+=Expanded=, and =Collapsed=.  Collapsing destroys the keyboard and popup
+surfaces through a factored complete teardown but leaves the control surface.
+Expanding recreates them through the existing =show= path.  The control surface
+has its own buffer and configure listener.  It keeps the fixed requested control
+dimensions rather than allocating from compositor suggestions, and unchanged
+configures on the same live surface reuse its drawing resources.  Surface
+teardown releases those resources so a recreated surface receives a fresh
+buffer.  Keyboard and control bind the same resolved output; while expanded,
+only keyboard-surface entry selects a new output.  The control owns and applies
+its integer or fractional scale.  It does not masquerade as a keyboard layout
+key or consume a keyboard row.
+
+The existing visibility interfaces keep their meaning.  Their complete
+transition table is:
+
+| Current state | SIGUSR1      | SIGUSR2 | SIGRTMIN     |
+|---------------+--------------+---------+--------------|
+| FullyHidden   | FullyHidden  | Expanded | Expanded    |
+| Expanded      | FullyHidden  | Expanded | FullyHidden |
+| Collapsed     | FullyHidden  | Expanded | FullyHidden |
+
+=SIGUSR1= destroys the control even when no keyboard surface exists.
+=--hidden= still starts in =FullyHidden= with no visible surface.  Native
+=Collapsed= is intentionally separate from signal-hidden state.
+
+* Input ownership
+
+The control has one bounded input record: source, touch id or pointer button,
+and whether the press remains valid.  Activation requires a down and up from
+the same owner.  Touch motion has no surface argument, so the touch-down records
+control ownership and every later motion is checked against control-local
+bounds.  Pointer enter/leave retain which surface has focus because later
+motion and button events likewise omit it.  Leaving the control cancels that
+press permanently.  Returning before release, releasing a different id/button,
+or adding a competing touch does nothing.
+
+Control input never overlaps normal keyboard input.  A control press is ignored
+while a key, modifier/glide gesture, candidate choice, or pointer press owns
+input; keyboard presses are ignored while the control owns input.  At a valid
+control down, clear the bounded post-glide edit/candidate state and run the
+existing input cancellation before showing pressed feedback.  At the valid
+release, clear ownership before changing surfaces.
+
+One teardown helper clears control ownership and the existing
+key/modifier/glide/candidate state, publishes a zero modifier mask, then
+destroys and nulls the popup viewport,
+popup role/surface, keyboard fractional-scale/viewport, layer role, and keyboard
+surface in dependency order.  The control owns its own fractional-scale object
+and preferred-scale value, so it cannot retain the destroyed keyboard surface's
+scale after an output change.  Before the compositor identifies an output,
+both roles leave output selection to it.  An accepted output change from either
+native surface then recreates every explicit layer role that must follow the
+newly selected output rather than leaving a role bound to the old output.  Hide,
+collapse, close, and orientation
+recreation use the keyboard teardown helper.  An output-driven orientation
+change also uses that teardown and recreation path.  Other output, seat,
+signal-show, and scale lifecycle boundaries perform the same input cleanup
+without destroying healthy keyboard surfaces.  This makes a stuck key or
+modifier unreachable rather than merely unlikely.
+
+* Implementation plan
+
+1. In =main.c=, add the small control surface lifecycle, drawing, and the
+   explicit hidden/expanded/collapsed transitions.  Route touch and pointer
+   events by their Wayland surface and keep one matching-owner control state.
+2. Extend =tests/test-main-glide-release.c= with deterministic state-machine
+   coverage for matching release, permanent slide cancellation, competing ids
+   and buttons, keyboard/control exclusion, and complete input cleanup at the
+   collapse boundary.
+3. Update =README.md= and =wvkbd.1.scd= with the visible controls and the exact
+   distinction between native collapse and the unchanged signal interface.
+4. Format, build with warnings, run the complete test and sanitizer suites, then
+   run all local review lenses to convergence before handing a clean exact
+   candidate to the workspace orchestrator.
+
+* Risks and containment
+
+- A second layer surface can accidentally reserve application space.  Its
+  exclusive zone is always zero; only the existing expanded keyboard reserves
+  height.
+- Releasing after a slide or with another input id can trigger a surprising
+  visibility change.  The matching-owner state machine makes those paths
+  no-ops and tests them directly.
+- Destroying a surface during an active gesture can strand a Wayland key or
+  modifier.  Every transition uses the existing cancellation path before
+  surface destruction, and tests assert that key, modifier/glide, candidate,
+  and post-glide state are empty.
+- Signals must remain a recovery interface.  Signal-hidden state remains fully
+  surface-free and independent of native collapsed state.
+
+* Out of scope
+
+- Application-specific Emacs, Firefox, or Android visibility commands.
+- Changes to automatic focus visibility, =--hidden=, or signal semantics.
+- Keyboard layout, recognition, dictionary, suggestion, or modifier-gesture
+  changes.

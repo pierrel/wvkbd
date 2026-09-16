@@ -73,6 +73,7 @@ def generate(text, output):
         generated.write(" * Content license: CC BY-SA 4.0; see THIRD_PARTY_LICENSES.md.\n")
         generated.write(" */\n")
         generated.write("#ifndef GLIDE_WORDS_EN_H\n#define GLIDE_WORDS_EN_H\n\n")
+        generated.write("#define GLIDE_DICTIONARY_SHA256 \"" + SOURCE_SHA256 + "\"\n")
         generated.write("#define GLIDE_LARGEST_BUCKET_FIRST '%s'\n" % chr(ord("a") + largest_first))
         generated.write("#define GLIDE_LARGEST_BUCKET_LAST '%s'\n" % chr(ord("a") + largest_last))
         generated.write("#define GLIDE_LARGEST_BUCKET_COUNT %d\n" % largest_count)

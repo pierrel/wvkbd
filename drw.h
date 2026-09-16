@@ -23,6 +23,7 @@ struct drwsurf {
 struct kbd;
 
 void drwsurf_resize(struct drwsurf *ds, uint32_t w, uint32_t h, double s);
+void drwsurf_reset(struct drwsurf *ds);
 void drwsurf_flip(struct drwsurf *ds);
 
 typedef union {
