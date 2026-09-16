@@ -78,7 +78,7 @@ tests/test-keyboard-glide: config.h tests/test-keyboard-glide.c keyboard.c keybo
 		-Wl,--gc-sections -Wl,--wrap=wl_proxy_get_version \
 		-Wl,--wrap=wl_proxy_marshal_flags $(LDFLAGS) $(TEST_LDFLAGS)
 
-tests/test-glide-geometry: config.h tests/test-glide-geometry.c keyboard.c keyboard.h drw.h glide.c glide.h glide-words-en.h mod-swipe.c mod-swipe.h letters.c letters.h os-compatibility.h layout.${LAYOUT}.h keymap.${LAYOUT}.h $(HDRS)
+tests/test-glide-geometry: config.h tests/test-glide-geometry.c keyboard.c keyboard.h glide-learning.h drw.h glide.c glide.h glide-words-en.h mod-swipe.c mod-swipe.h letters.c letters.h os-compatibility.h layout.${LAYOUT}.h keymap.${LAYOUT}.h $(HDRS)
 	$(CC) $(TEST_CFLAGS) -ffunction-sections -fdata-sections \
 		-DLAYOUT=\"layout.$(LAYOUT).h\" -DKEYMAP=\"keymap.$(LAYOUT).h\" \
 		-D_XOPEN_SOURCE=700 -DVERSION=\"$(VERSION)\" \

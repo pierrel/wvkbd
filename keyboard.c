@@ -35,6 +35,7 @@ kbd_switch_layout(struct kbd *kb, struct layout *l, size_t layer_index)
 {
     kbd_reset_candidates(kb);
     kb->prevlayout = kb->layout;
+    kb->prev_layer_index = kb->layer_index;
     if ((kb->layer_index != kb->last_abc_index) && (kb->layout->abc)) {
         kb->last_abc_layout = kb->layout;
         kb->last_abc_index = kb->layer_index;
@@ -332,7 +333,7 @@ kbd_unpress_key(struct kbd *kb, uint32_t time)
 
         if (kb->compose >= 2) {
             kb->compose = 0;
-            kbd_switch_layout(kb, kb->last_abc_layout, kb->last_abc_index);
+            kbd_switch_layout(kb, kb->prevlayout, kb->prev_layer_index);
         } else if (unlatch_shift || unlatch_ctrl || unlatch_alt ||
                    unlatch_super || unlatch_altgr) {
             kbd_draw_layout(kb);
@@ -465,8 +466,7 @@ kbd_press_key(struct kbd *kb, struct key *k, uint32_t time)
     case Layout:
         // switch to the layout determined by the key
         kbd_switch_layout(kb, k->layout, kbd_get_layer_index(kb, k->layout));
-        // reset previous layout to default/first so we don't get any weird
-        // cycles
+        // reset the alphabetical fallback to default/first to avoid cycles
         kb->last_abc_index = 0;
         if (kb->landscape) {
             kb->last_abc_layout = &kb->layouts[kb->landscape_layers[0]];
@@ -496,8 +496,7 @@ kbd_press_key(struct kbd *kb, struct key *k, uint32_t time)
         if (kb->last_abc_layout) {
             kb->compose = 0;
             kbd_switch_layout(kb, kb->last_abc_layout, kb->last_abc_index);
-            // reset previous layout to default/first so we don't get any weird
-            // cycles
+            // reset the alphabetical fallback to default/first to avoid cycles
             kb->last_abc_index = 0;
             if (kb->landscape) {
                 kb->last_abc_layout = &kb->layouts[kb->landscape_layers[0]];

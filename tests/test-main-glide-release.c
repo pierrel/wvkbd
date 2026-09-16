@@ -54,6 +54,8 @@ static struct key *looked_up_key;
 static bool lookup_depends_on_compose;
 static bool cancel_finished;
 static bool next_key_changes_interpretation;
+static struct layout *switched_layout;
+static size_t switched_layer_index;
 static char draw_events[16];
 static size_t draw_event_count;
 static char configure_events[16];
@@ -119,7 +121,7 @@ kbd_release_key(struct kbd *kb, uint32_t time)
         kb->last_press = NULL;
         if (kb->compose >= 2) {
             kb->compose = 0;
-            kbd_switch_layout(kb, kb->prevlayout, kb->last_abc_index);
+            kbd_switch_layout(kb, kb->prevlayout, kb->prev_layer_index);
         }
     }
 }
@@ -443,8 +445,8 @@ void
 kbd_switch_layout(struct kbd *kb, struct layout *layout, size_t index)
 {
     (void)kb;
-    (void)layout;
-    (void)index;
+    switched_layout = layout;
+    switched_layer_index = index;
     layout_switches++;
     layout_switch_saw_input_owner = cur_press || keyboard.last_press;
 }
@@ -510,6 +512,8 @@ reset(void)
     lookup_depends_on_compose = false;
     cancel_finished = false;
     next_key_changes_interpretation = false;
+    switched_layout = NULL;
+    switched_layer_index = 0;
     draw_event_count = 0;
     configure_event_count = 0;
     track_configure_order = false;
@@ -1686,6 +1690,30 @@ test_modifier_only_lifecycle_reset_redraws(void)
     assert(surface_flips == 1);
 }
 
+static void
+test_compose_layout_lifecycle_reset_restores_previous_layout(void)
+{
+    struct layout previous = {0};
+    struct layout temporary = {0};
+    int keyboard_surface;
+
+    reset();
+    layer_surface = (struct zwlr_layer_surface_v1 *)&keyboard_surface;
+    draw_surf.buf = (struct wl_buffer *)&keyboard_surface;
+    keyboard.layout = &temporary;
+    keyboard.prevlayout = &previous;
+    keyboard.prev_layer_index = 4;
+    keyboard.last_abc_index = 0;
+    keyboard.compose = 2;
+    reset_input_lifecycle(1);
+    assert(keyboard.compose == 0);
+    assert(layout_switches == 1);
+    assert(switched_layout == &previous);
+    assert(switched_layer_index == 4);
+    assert(layout_draws == 0);
+    assert(surface_flips == 1);
+}
+
 int
 main(void)
 {
@@ -1711,6 +1739,7 @@ main(void)
     test_visibility_show_and_fractional_scale_cancel_control_input();
     test_configure_resets_all_input_state();
     test_modifier_only_lifecycle_reset_redraws();
+    test_compose_layout_lifecycle_reset_restores_previous_layout();
     test_cancel_active_input();
     test_lifecycle_boundaries();
     test_orientation_output_and_configure();
