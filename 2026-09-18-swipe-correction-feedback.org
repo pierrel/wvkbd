@@ -312,4 +312,3 @@ EmacsOS record replace them.  Preserve every tracked dated historical record.
 The =llm-agentic-experiments= hypothesis seed is also discarded.  Keyboard
 ranking is outside that repository's agent/model-behavior admission rule, so
 this effort has zero intended change in that repository.
-
