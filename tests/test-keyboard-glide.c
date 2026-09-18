@@ -579,6 +579,15 @@ test_replacement_and_exact_erase_emit_only_the_rejected_units(void)
     assert(!kbd_begin_glide_followup(&fixture.keyboard, &backspace, 4));
     assert(fcntl(sockets[1], F_SETFL, O_NONBLOCK) == 0);
     assert(recv(sockets[1], record, sizeof(record), 0) < 0 && errno == EAGAIN);
+    reset_events();
+    assert(kbd_commit_glide_result(&fixture.keyboard, &result, "abc", 3, 5));
+    assert(kbd_candidate_touch_down(&fixture.keyboard, 5, 250, 30) ==
+           KbdCandidateClaimed);
+    assert(kbd_candidate_touch_up(&fixture.keyboard, 5, 6) == KbdCandidateOwned);
+    length = recv(sockets[1], record, sizeof(record) - 1, 0);
+    assert(length > 0);
+    record[length] = '\0';
+    assert(strstr(record, "\"word\":\"hello\""));
     close(sockets[0]);
     close(sockets[1]);
     candidate_fixture_destroy(&fixture);
