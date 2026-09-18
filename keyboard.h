@@ -133,6 +133,10 @@ struct kbd {
     uint8_t mods;
     uint8_t compose;
     uint8_t glide_undo_count;
+    size_t glide_trace_length;
+    char glide_trace[GLIDE_MAX_TRACE + 1];
+    size_t glide_word_length;
+    char glide_word[GLIDE_MAX_WORD + 1];
     struct kbd_candidate_session candidates;
     struct glide_learning_sink *learning;
     struct key *last_press;
@@ -183,6 +187,7 @@ bool kbd_glide_geometry(const struct kbd *kb, struct glide_geometry *geometry);
 bool kbd_key_changes_interpretation(const struct kbd *kb,
                                     const struct key *key);
 bool kbd_commit_glide_result(struct kbd *kb, const struct glide_result *result,
+                             const char *trace, size_t trace_length,
                              uint32_t time);
 enum kbd_candidate_event kbd_candidate_touch_down(struct kbd *kb, int32_t id,
                                                   int32_t x, int32_t y);

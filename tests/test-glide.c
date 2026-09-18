@@ -69,6 +69,10 @@ main(void)
     static const char *const one[] = {"hello"};
     static const char *const two[] = {"to", "too"};
     static const char *const three[] = {"of", "off", "oof"};
+    struct glide_feedback feedback = {
+        .count = 1,
+        .entries = {{.trace = "to", .word = "to", .corrections = 1}},
+    };
 
     expect("helo", "hello");
     memset(too_long, 'a', sizeof(too_long));
@@ -78,6 +82,13 @@ main(void)
     expect_ranked("helo", one, 1);
     expect_ranked("to", two, 2);
     expect_ranked("of", three, 3);
+    for (size_t i = 0; i < 2; i++)
+        points[i] = current.letters["to"[i] - 'a'];
+    glide_recognize_with_feedback("to", points, 2, &current, &feedback, &result);
+    assert(result.count == 2);
+    assert(!memcmp(result.matches[0].word, "too", 3));
+    assert(!memcmp(result.matches[1].word, "to", 2));
+    assert(result.matches[1].score == 0);
     glide_recognize("", points, 0, &current, &result);
     assert(result.count == 0);
     glide_recognize("a-", points, 2, &current, &result);

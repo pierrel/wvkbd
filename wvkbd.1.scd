@@ -61,6 +61,11 @@ Activation requires a press and matching release; sliding away cancels it.
 	Tapping Shift or CapsLock preserves the pending separator decision for the
 	following key.
 	External cursor or hardware edits are not observable.
+	With an armed private learning sink, selecting the second or third candidate
+	demotes the emitted word for that glide immediately. Plain Backspace that
+	retracts the complete emitted word and trailing Space does the same, including
+	after selecting an alternate. Feedback stays local to the keyboard process;
+	it changes candidate order only, not geometry eligibility or displayed scores.
 	The gesture threshold is the floor of 40% of the key height, with a 12-pixel
 	minimum. Upward/downward gestures require twice as much vertical as horizontal
 	movement; Control+Alt requires positive horizontal movement at least twice the
@@ -69,8 +74,10 @@ Activation requires a press and matching release; sliding away cancels it.
 
 *--glide-learning-fd 3*
 	Send bounded private swipe-observation datagrams through inherited descriptor
-	3. The descriptor must be a connected unnamed Unix datagram socket. Invalid or
-	failed descriptors disable observation without affecting keyboard input.
+	3. The descriptor must be a connected unnamed Unix datagram socket. It receives
+	at most one bounded startup feedback snapshot, then only sends observations and
+	feedback. Invalid or failed descriptors disable learning without affecting
+	keyboard input.
 
 *-l* _layers_
 	comma separated list of layers in vertical/portrait mode.

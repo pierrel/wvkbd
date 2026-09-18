@@ -47,7 +47,8 @@ main(void)
                                            sizeof(trace), &geometry, &result,
                                            output);
     assert(length > 0 && length < sizeof(output));
-    assert(memmem(output, length, "\"algorithm\":\"geometry-v1\"", 25));
+    assert(memmem(output, length, "\"algorithm\":\"geometry-feedback-v1\"",
+                  strlen("\"algorithm\":\"geometry-feedback-v1\"")));
     assert(memmem(output, length, "18446744073709551615", 20));
     assert(memmem(output, length, "\"rank\":3", 8));
     result.count = 0;
@@ -68,8 +69,23 @@ main(void)
 
     assert(socketpair(AF_UNIX, SOCK_DGRAM, 0, sockets) == 0);
     assert(sockets[0] == 3);
+    length = (size_t)snprintf(
+        output, sizeof(output), "feedback-v1\n%s\t%s\tab\tbeta\t65535\n",
+        glide_algorithm, glide_dictionary_sha256);
+    assert(length < sizeof(output));
+    assert(send(sockets[1], output, length, 0) == (ssize_t)length);
     glide_learning_sink_init(&sink, sockets[0]);
     assert(sink.fd == 3);
+    assert(sink.feedback.count == 1);
+    assert(sink.feedback.entries[0].corrections == UINT16_MAX);
+    glide_learning_reject(&sink, "aabb", 4, "beta", 4);
+    assert(sink.feedback.count == 1);
+    assert(sink.feedback.entries[0].corrections == UINT16_MAX);
+    received_length = recv(sockets[1], received, sizeof(received), 0);
+    assert(received_length > 0);
+    assert(memmem(received, (size_t)received_length, "\"type\":\"feedback\"",
+                  strlen("\"type\":\"feedback\"")));
+    assert(!memmem(received, (size_t)received_length, "reason", 6));
     result = result_fixture();
     assert(glide_learning_observe(&sink, "abc", points, 3, &geometry, &result));
     received_length = recv(sockets[1], received, sizeof(received), 0);

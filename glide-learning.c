@@ -9,8 +9,6 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-#define GLIDE_ALGORITHM "geometry-v1"
-
 struct writer {
     char *output;
     size_t length;
@@ -94,7 +92,7 @@ glide_learning_encode_gesture(const char *session, uint64_t gesture,
            "{\"type\":\"gesture\",\"version\":1,\"session\":\"%s\","
            "\"gesture\":%" PRIu64 ",\"algorithm\":\"%s\","
            "\"dictionary\":\"%s\",\"trace\":\"%.*s\",\"points\":[",
-           session, gesture, GLIDE_ALGORITHM, glide_dictionary_sha256,
+           session, gesture, glide_algorithm, glide_dictionary_sha256,
            (int)trace_length, trace);
     for (size_t i = 0; i < trace_length; i++)
         append(&writer, "%s[%" PRId32 ",%" PRId32 "]", i ? "," : "",
@@ -189,6 +187,15 @@ glide_learning_sink_init(struct glide_learning_sink *sink, int fd)
     struct sockaddr_un local, peer;
     socklen_t local_length = sizeof(local), peer_length = sizeof(peer);
     unsigned char random[16];
+    char snapshot[GLIDE_FEEDBACK_SNAPSHOT_MAX + 1];
+    char control[CMSG_SPACE(sizeof(int))];
+    struct iovec vector = {.iov_base = snapshot,
+                           .iov_len = GLIDE_FEEDBACK_SNAPSHOT_MAX};
+    struct msghdr message = {.msg_iov = &vector,
+                             .msg_iovlen = 1,
+                             .msg_control = control,
+                             .msg_controllen = sizeof(control)};
+    ssize_t snapshot_length;
     static const char hex[] = "0123456789abcdef";
     bool valid =
         fd == 3 && getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &type_length) == 0 &&
@@ -209,10 +216,38 @@ glide_learning_sink_init(struct glide_learning_sink *sink, int fd)
     }
     sink->fd = fd;
     sink->next_gesture = 1;
+    snapshot_length = recvmsg(fd, &message, MSG_DONTWAIT);
+    if (snapshot_length > 0 && !(message.msg_flags & (MSG_TRUNC | MSG_CTRUNC)) &&
+        message.msg_controllen == 0) {
+        snapshot[snapshot_length] = '\0';
+        glide_feedback_parse(&sink->feedback, snapshot, (size_t)snapshot_length);
+    }
     for (size_t i = 0; i < sizeof(random); i++) {
         sink->session[i * 2] = hex[random[i] >> 4];
         sink->session[i * 2 + 1] = hex[random[i] & 15];
     }
+}
+
+void
+glide_learning_reject(struct glide_learning_sink *sink, const char *trace,
+                      size_t trace_length, const char *word, size_t word_length)
+{
+    char record[GLIDE_LEARNING_JSON_MAX];
+    struct writer writer = {.output = record, .valid = true};
+    const struct glide_feedback_entry *entry;
+
+    if (!sink || sink->fd < 0 ||
+        !glide_feedback_reject(&sink->feedback, trace, trace_length, word,
+                               word_length))
+        return;
+    entry = &sink->feedback.entries[sink->feedback.count - 1];
+    append(&writer,
+           "{\"type\":\"feedback\",\"version\":1,"
+           "\"algorithm\":\"%s\",\"dictionary\":\"%s\","
+           "\"trace\":\"%s\",\"word\":\"%s\"}", glide_algorithm,
+           glide_dictionary_sha256, entry->trace, entry->word);
+    if (!writer.valid || !send_record(sink, record, writer.length))
+        return;
 }
 
 bool

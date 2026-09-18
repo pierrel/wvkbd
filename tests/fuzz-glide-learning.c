@@ -1,5 +1,6 @@
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "glide-learning.h"
 
@@ -14,6 +15,8 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     char trace[GLIDE_MAX_TRACE];
     char words[GLIDE_MAX_MATCHES][GLIDE_MAX_WORD];
     char output[GLIDE_LEARNING_JSON_MAX];
+    char snapshot[GLIDE_FEEDBACK_SNAPSHOT_MAX + 1];
+    struct glide_feedback feedback;
     size_t trace_length;
 
     if (!size)
@@ -42,5 +45,10 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     glide_learning_encode_resolution(
         session, 1, GLIDE_LEARNING_ALTERNATE_SELECTED,
         result.count > 1 ? 2 : 0, output);
+    if (size <= GLIDE_FEEDBACK_SNAPSHOT_MAX) {
+        memcpy(snapshot, data, size);
+        snapshot[size] = '\0';
+        glide_feedback_parse(&feedback, snapshot, size);
+    }
     return 0;
 }
