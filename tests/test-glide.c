@@ -54,6 +54,50 @@ expect_ranked(const char *trace, const char *const *words, size_t count)
     }
 }
 
+static void
+test_feedback_snapshots(void)
+{
+    char snapshot[GLIDE_FEEDBACK_SNAPSHOT_MAX + 1];
+    char trace[65];
+    char algorithm[25];
+    char dictionary[65];
+    char word[25];
+    struct glide_feedback feedback;
+    size_t length = 0;
+
+    memset(algorithm, 'a', sizeof(algorithm) - 1);
+    algorithm[sizeof(algorithm) - 1] = '\0';
+    memset(dictionary, 'b', sizeof(dictionary) - 1);
+    dictionary[sizeof(dictionary) - 1] = '\0';
+    memset(word, 'd', sizeof(word) - 1);
+    word[sizeof(word) - 1] = '\0';
+    length += (size_t)snprintf(snapshot + length, sizeof(snapshot) - length,
+                               "feedback-v1\n");
+    for (size_t i = 0; i < GLIDE_FEEDBACK_MAX; i++) {
+        memset(trace, 0, sizeof(trace));
+        for (size_t j = 0; j < 62; j++)
+            trace[j] = j % 2 ? 'b' : 'a';
+        trace[62] = (char)('c' + i / 2);
+        trace[63] = i % 2 ? 'b' : 'a';
+        length += (size_t)snprintf(snapshot + length, sizeof(snapshot) - length,
+                                   "%s\t%s\t%s\t%s\t65535\n", algorithm,
+                                   dictionary, trace, word);
+    }
+    assert(length == GLIDE_FEEDBACK_SNAPSHOT_MAX);
+    snapshot[length] = '\0';
+    assert(glide_feedback_parse(&feedback, snapshot, length));
+    assert(feedback.count == 0);
+    snapshot[length - 1] = '\0';
+    assert(!glide_feedback_parse(&feedback, snapshot, length));
+    snapshot[length - 1] = '\n';
+    assert(!glide_feedback_parse(&feedback, snapshot, length - 1));
+    assert(snprintf(snapshot, sizeof(snapshot),
+                    "feedback-v1\n%s\t%s\tab\tbeta\t1\n%s\t%s\tab\tbeta\t2\n",
+                    glide_algorithm, glide_dictionary_sha256, glide_algorithm,
+                    glide_dictionary_sha256) > 0);
+    assert(!glide_feedback_parse(&feedback, snapshot, strlen(snapshot)));
+}
+
 int
 main(void)
 {
@@ -89,6 +133,7 @@ main(void)
     assert(!memcmp(result.matches[0].word, "too", 3));
     assert(!memcmp(result.matches[1].word, "to", 2));
     assert(result.matches[1].score == 0);
+    test_feedback_snapshots();
     glide_recognize("", points, 0, &current, &result);
     assert(result.count == 0);
     glide_recognize("a-", points, 2, &current, &result);

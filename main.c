@@ -1463,7 +1463,8 @@ usage(char *argv0)
             "  --mod-swipe - Tap, Ctrl/Alt/Ctrl+Alt swipes, or glide Latin "
             "letters\n");
     fprintf(stderr,
-            "  --glide-learning-fd 3 - Send private swipe observations on fd 3\n");
+            "  --glide-learning-fd 3 - Receive one private snapshot and send "
+            "private swipe feedback on fd 3\n");
     fprintf(stderr, "  -H [int]    - Height in pixels\n");
     fprintf(stderr, "  -L [int]    - Landscape height in pixels\n");
     fprintf(stderr, "  -R [int]    - Rounding radius in pixels\n");

@@ -1,4 +1,6 @@
 #include <assert.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -544,6 +546,45 @@ test_candidate_touch_replacement(void)
 }
 
 static void
+test_replacement_and_exact_erase_emit_only_the_rejected_units(void)
+{
+    struct candidate_fixture fixture;
+    struct glide_result result = candidate_result(3);
+    struct glide_learning_sink learning = {.fd = -1};
+    struct key backspace = {.type = Code, .code = KEY_BACKSPACE};
+    char record[GLIDE_LEARNING_JSON_MAX];
+    int sockets[2];
+    ssize_t length;
+
+    assert(socketpair(AF_UNIX, SOCK_DGRAM, 0, sockets) == 0);
+    learning.fd = sockets[0];
+    candidate_fixture_init(&fixture);
+    fixture.keyboard.learning = &learning;
+    reset_events();
+    assert(kbd_commit_glide_result(&fixture.keyboard, &result, "abc", 3, 1));
+    assert(kbd_candidate_touch_down(&fixture.keyboard, 1, 150, 30) ==
+           KbdCandidateClaimed);
+    assert(kbd_candidate_touch_up(&fixture.keyboard, 1, 2) == KbdCandidateOwned);
+    length = recv(sockets[1], record, sizeof(record) - 1, 0);
+    assert(length > 0);
+    record[length] = '\0';
+    assert(strstr(record, "\"trace\":\"abc\""));
+    assert(strstr(record, "\"word\":\"hello\""));
+    reset_events();
+    assert(kbd_begin_glide_followup(&fixture.keyboard, &backspace, 3));
+    length = recv(sockets[1], record, sizeof(record) - 1, 0);
+    assert(length > 0);
+    record[length] = '\0';
+    assert(strstr(record, "\"word\":\"help\""));
+    assert(!kbd_begin_glide_followup(&fixture.keyboard, &backspace, 4));
+    assert(fcntl(sockets[1], F_SETFL, O_NONBLOCK) == 0);
+    assert(recv(sockets[1], record, sizeof(record), 0) < 0 && errno == EAGAIN);
+    close(sockets[0]);
+    close(sockets[1]);
+    candidate_fixture_destroy(&fixture);
+}
+
+static void
 test_candidate_hit_testing_and_pointer_ownership(void)
 {
     struct candidate_fixture fixture;
@@ -869,6 +910,7 @@ main(void)
     test_glide_undo();
     test_glide_admission();
     test_candidate_touch_replacement();
+    test_replacement_and_exact_erase_emit_only_the_rejected_units();
     test_candidate_hit_testing_and_pointer_ownership();
     test_candidate_clear_resets_owned_session();
     test_candidate_zero_and_case_replacement();
