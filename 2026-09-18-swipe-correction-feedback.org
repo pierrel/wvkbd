@@ -1,0 +1,315 @@
+#+title: Swipe correction feedback
+#+date: 2026-09-18
+
+* State and design revision
+
+This is the accepted D3 design for the =swipe-correction-feedback= pilot.
+Implementation and implementation review remain pending.  Its source design
+revision is SHA-256
+=2c3ac9ae1411089cd0347b3a7e393f74906815bbff8a21250f90af5b520c8aab=.
+
+This record owns keyboard correction classification, immediate in-process
+ranking, startup snapshot consumption, wire production, and wvkbd verification.
+The paired EmacsOS
+=docs/2026-09-18-swipe-correction-feedback-integration.org= record owns strict
+wire admission, private persistence, startup snapshot publication, status,
+controls, installation, and cross-repository verification.
+
+* Objective
+
+Teach opt-in glide ranking from two explicit keyboard-owned corrections:
+
+1. selecting candidate rank two or three rejects the emitted word that the
+   existing exact word-plus-Space replacement removes; and
+2. exact-unit Backspace rejects the currently emitted glide word, including a
+   previously selected alternate, when the existing word-plus-Space unit is
+   retracted.
+
+A correction changes the next matching glide in the same keyboard process.
+Successfully persisted feedback changes later armed sessions.  The keyboard
+never observes application text to infer either action.
+
+* Historical supersessions
+
+This record directly supersedes
+=2026-09-12-swipe-suggestions.org= sections =Dictionary and ranking= and
+=Bounds and non-goals= only where they say ordering is raw geometry plus
+frequency and that no learning exists.  Geometry eligibility, ranked candidate
+presentation, exact replacement, follow-up editing, fixed runtime bounds, and
+the rest of that record remain authoritative.
+
+This record directly supersedes
+=2026-09-13-swipe-learning-runtime-integration.org= sections =Exact source and
+CLI= and =Identity and wire ownership= only where they prohibit any socket read
+or ranking change.  Wvkbd now receives one startup snapshot before input and
+uses it only for ranking.  The one-way runtime event path, optional exact fd 3,
+nonblocking fail-off transport, evidence schema, and semantic observation
+timing remain authoritative.
+
+=2026-09-13-swipe-learning-runtime-review-amendments.org= remains authoritative
+for evidence resolution.  Exact-unit retraction can teach ranking immediately
+while its evidence episode remains pending through Shift and resolves only on
+the next qualifying reswipe or text action.
+
+* Observable acceptance
+
+1. A successful rank-two or rank-three replacement queues all existing Wayland
+   replacement requests before recording one rejection of the word replaced.
+2. Rank one and strip dismissal record no ranking feedback.
+3. Exact-unit Backspace clears the live unit, queues the complete existing
+   retraction, then records one rejection of the erased word.
+4. Ordinary Backspace and every lifecycle loss outside the exact-unit window
+   record no ranking feedback.
+5. The correction affects the next matching glide in the same process.
+6. An armed restart restores successfully persisted feedback.
+7. Disable plus UI restart runs baseline ranking with no feedback loaded.
+8. Disable, restart, and the existing two-tap erase remove evidence and ranking
+   state; re-enable plus restart begins empty.
+9. Another trace or algorithm/dictionary build is unaffected while its entry is
+   retained.  The deliberate bounded exception is global oldest-entry eviction
+   when a thirty-third distinct key is admitted.  An evicted key is unlearned.
+   Capacity is one global 32-entry table, not enlarged or partitioned.
+10. Raw geometry eligibility and reported raw scores are unchanged.  Feedback
+    reorders only geometry-eligible words.
+11. With no valid matching snapshot, recognition and Wayland output are
+    byte-for-byte the existing baseline.
+12. Keyboard input never waits for learning I/O.  Snapshot or send failure
+    cannot alter the already queued text transaction.
+
+* Bounds and non-goals
+
+There is no application or manually entered text, focused app, timestamp,
+contact, URL, process metadata, or network data.  There is no learning from
+rank one, strip dismissal, ordinary Backspace, punctuation, Space, external
+editing, no-candidate attribution, or delayed manual correction.
+
+This change adds no listener, pathname socket, server API, model, timer,
+runtime allocation, configuration knob, user dictionary, or broad gesture
+model.  Trigger classification is local and ephemeral.  No trigger reason is
+sent or persisted.
+
+Learning remains off when the optional fd 3 learning sink is absent or invalid.
+Such a baseline process never creates or updates ranking feedback.
+
+* Ranking identity and bounded table
+
+Change the complete ranking identity from =geometry-v1= to
+=geometry-feedback-v1=.  Candidate order is no longer geometry-only even
+though each reported candidate score remains its raw geometry error.  A future
+ranking-policy change requires another explicit identity bump.  The generated
+dictionary digest continues to separate vocabulary builds.
+
+The optional learning sink owns one fixed 32-entry runtime table.  Each entry
+contains only a collapsed lowercase crossed-key trace, lowercase word, and
+saturated =uint16_t= correction count.  The table holds only snapshot entries
+whose algorithm and dictionary match the running build.
+
+For each geometry-eligible dictionary word compute:
+
+#+begin_example
+adjusted rank error =
+  raw geometry error + corrections * (eligibility threshold + 1)
+#+end_example
+
+All arithmetic saturates.  Eligibility continues to use only:
+
+#+begin_example
+raw geometry error <= eligibility threshold
+#+end_example
+
+Using =threshold + 1=, not key height, guarantees that one corrected word ranks
+below every uncorrected eligible word even when the recognizer uses its
+12-pixel minimum threshold.  Repeated corrections order already corrected
+words.  Equal adjusted errors retain dictionary frequency order.  A null or
+empty table takes the current ranking path exactly.
+
+A matching correction removes its entry, increments its count with saturation,
+and reinserts it newest.  A new correction appends count one.  The persistent
+owner evicts the globally oldest-last-corrected entry before adding a
+thirty-third distinct key.  That global eviction is the only permitted
+cross-key effect.
+
+* Keyboard-owned correction transaction
+
+Retain one bounded active glide unit beside =glide_undo_count=: the raw trace
+and currently emitted lowercase word.  Set it only after successful initial
+word-plus-Space emission.  Every existing lifecycle boundary that clears
+exact-unit undo also clears this unit.
+
+On alternate selection:
+
+1. snapshot the old unit;
+2. close the candidate transaction as today;
+3. queue the balanced replacement Backspaces and selected word-plus-Space;
+4. update ranking for the old trace-word pair;
+5. attempt its feedback datagram; and
+6. retain the selected lowercase candidate as the current unit.
+
+On exact-unit Backspace:
+
+1. snapshot the active unit;
+2. clear the live undo and unit state before output;
+3. queue all balanced Backspaces;
+4. update ranking for the erased trace-word pair; and
+5. attempt its feedback datagram.
+
+The output requests precede feedback in both paths.  A crash therefore cannot
+teach an action whose text transaction was never queued.  Change the real
+=kbd_commit_glide_result= interface to receive the trace and update every
+caller.  Do not keep a compatibility wrapper used only by tests.
+
+A rejection first updates the fixed in-process table, then attempts one
+existing nonblocking, no-retry datagram while fd 3 is live.  Send or peer
+failure preserves the loaded table and the update that triggered it, closes
+the transport under the existing permanent fail-off rule, and ignores later
+corrections because the optional learning session is no longer live.
+
+* Exact feedback wire record
+
+The keyboard emits one bounded ASCII, non-NUL JSON object with exactly these
+members and no others:
+
+#+begin_src json
+{"type":"feedback","version":1,"algorithm":"geometry-feedback-v1","dictionary":"<64 lowercase hex>","trace":"<2..64 lowercase letters>","word":"<2..24 lowercase letters>"}
+#+end_src
+
+There is no =reason= member or enum.  =algorithm= matches
+=[a-z0-9-]{1,24}=, =dictionary= matches =[0-9a-f]{64}=, =trace= matches
+=[a-z]{2,64}=, and =word= matches =[a-z]{2,24}=.  The paired collector uses the
+same grammar on wire and disk and supplies the hostile-input admission rules.
+
+Gesture and resolution records retain their existing exact schemas.  Feedback
+shares their socket, rate limiter, epoch fence, 8,192-datagram lifetime bound,
+and 64 MiB write budget, but never enters the evidence journal or export.
+
+* Startup snapshot
+
+At learning-sink initialization, after validating fd 3 and before any gesture,
+wvkbd performs at most one =recvmsg(MSG_DONTWAIT)=.  It rejects payload or
+control truncation and ancillary data.  It never registers fd 3 as an input
+source and never polls it again.
+
+Disk and startup wire use the same exact ASCII representation:
+
+#+begin_example
+feedback-v1
+algorithm<TAB>dictionary<TAB>trace<TAB>word<TAB>count
+...
+#+end_example
+
+The header is 12 bytes.  There are zero through 32 entries ordered from
+oldest-last-corrected to newest.  Each entry has exactly five fields.
+Algorithm, dictionary, trace, and word use the wire grammar.  Count is decimal
+=1..65535= with no alternate syntax.  Reject duplicates, partial lines, NULs,
+extra fields, and trailing data.
+
+The exact maximum is 5,964 bytes: 12 header bytes plus 32 worst-case 186-byte
+entries.  The C buffer has one additional terminator byte.  Valid entries for
+other algorithm/dictionary builds count toward the persistent global bound but
+are ignored by this running keyboard.  A malformed snapshot starts with an
+empty table while leaving outbound evidence capture operational.
+
+The collector queues the complete snapshot before it publishes =capturing= or
+=ready=.  Missing learning fd or armed startup fallback launches the unchanged
+baseline keyboard.
+
+* Evidence and replay semantics
+
+The existing gesture journal remains factual:
+
+- it retains the exact candidates actually presented;
+- candidate scores remain raw geometry scores; and
+- exact-unit retraction retains its existing ambiguous evidence lifecycle even
+  though its ranking signal is immediate.
+
+A gesture record alone no longer reconstructs personalized ordering because
+the bounded aggregate is deliberately excluded from evidence export.  Raw
+geometry replay remains available.  Serializing full ranking state per gesture
+would widen the privacy and wire surface and is not part of this objective.
+
+* Failure behavior
+
+Ordinary input and already queued Wayland requests continue across every
+learning failure.  Snapshot parse failure starts with empty ranking.  Outbound
+send failure permanently fails only optional learning transport off.
+
+A valid feedback record whose collector persistence fails can already have
+changed this process's in-memory ranking.  The collector terminates and closes
+the peer, so a later feedback send follows normal fail-off.  A pre-rename
+write, temporary-file fsync, or rename failure preserves the prior destination
+bytes.  After successful rename, a directory-fsync failure can leave the
+complete replacement visible with crash durability unconfirmed.  Restart
+therefore validates whichever complete snapshot is present and does not assume
+the triggering correction is absent or present.  Atomic rename prevents any
+partial destination from becoming a snapshot.
+
+* Affected wvkbd artifacts
+
+Implementation is expected to affect:
+
+- =glide.c= and =glide.h=;
+- =glide-learning.c= and =glide-learning.h=;
+- =keyboard.c= and =keyboard.h=;
+- =main.c=;
+- focused glide, learning, keyboard, release, fuzz, and benchmark tests;
+- =README.md= and =wvkbd.1.scd=; and
+- this dated design.
+
+No implementation byte is accepted by this design record.  The current
+root-authored partial C diff is recovery evidence only and must be replaced or
+reworked by the assigned implementor.
+
+* Verification plan
+
+Wvkbd coverage must prove:
+
+- exact six-field feedback JSON and absence of =reason=;
+- count saturation, recency movement, and global oldest eviction;
+- cross-trace/build noninterference while retained and loss of effect after
+  bounded eviction;
+- exact 5,964-byte maximum snapshot;
+- malformed, duplicate, truncated, ancillary-bearing, and other-build entries;
+- no-snapshot baseline equivalence;
+- the minimum-threshold demotion guarantee;
+- unchanged raw eligibility and raw reported score;
+- frequency tie behavior;
+- rank-two/three rejection after queued replacement;
+- no feedback for rank one or dismissal;
+- alternate then exact erase rejects the alternate;
+- no feedback for ordinary Backspace or lifecycle loss;
+- send-failure behavior; and
+- existing evidence-resolution compatibility.
+
+Run formatting, warning-clean builds, =make test=, dictionary tests, sanitizers,
+both fuzz targets, and the worst-case benchmark.  The paired EmacsOS cross-build
+and live phone acceptance remain required before deployment.
+
+* Review and recovery disposition
+
+Seven independent design lenses completed.  Initial review found zero blockers,
+five distinct important defects, and one nit, all fixed in D2.  Rereview found
+one additional important atomic-publication defect, fixed in D3.  There are no
+deferred or rejected findings.  Framework and protocol review were clean
+initially.
+
+Retain the recovery concepts of exact keyboard-owned triggers, trace-word
+scope, one global 32-entry recency table, saturated counts, raw eligibility and
+score preservation, the inherited socket, one pre-ready startup snapshot,
+private bounded persistence, and existing opt-in/erase controls.
+
+Change the recovery algorithm identity, penalty unit, snapshot size and
+representation, output ordering, six-field schema, strict parsing, invalid
+datagram accounting, global-eviction disclosure, startup status/order,
+persistence-failure semantics, replay disclosure, and real commit interface.
+
+Discard all current partial C bytes as an accepted implementation.  They are
+untested and include a stray feature-test macro, a 4,096-byte snapshot that
+cannot hold 32 worst-case entries, wrong-build invalidation instead of ignore,
+feedback before output, and a test-only wrapper.  Discard both root-authored
+recovery design drafts as accepted artifacts; this D3 record and its paired
+EmacsOS record replace them.  Preserve every tracked dated historical record.
+
+The =llm-agentic-experiments= hypothesis seed is also discarded.  Keyboard
+ranking is outside that repository's agent/model-behavior admission rule, so
+this effort has zero intended change in that repository.
+
