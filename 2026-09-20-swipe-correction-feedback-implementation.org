@@ -20,10 +20,11 @@ This record directly supersedes the =State and design revision= statement in
 =2026-09-18-swipe-correction-feedback.org= that implementation and
 implementation review remain pending.  Both phases are complete.
 
-This record directly supersedes the final paragraph of =Affected wvkbd
-artifacts= in that document.  The root-authored recovery bytes remained
-unaccepted as written, but the assigned implementor replaced or reworked them
-into the reviewed implementation.
+This record directly supersedes only the sentence beginning =The current
+root-authored partial C diff= in =Affected wvkbd artifacts= in that document.
+The root-authored recovery bytes remained unaccepted as written, but the
+assigned implementor replaced or reworked them into the reviewed
+implementation.
 
 This record directly supersedes the final paragraph of =Review and recovery
 disposition= in that document only as a description of current status.  Its
