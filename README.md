@@ -124,9 +124,11 @@ External focus, cursor, and hardware edits are not observable.
 With an armed private learning sink, selecting the second or third candidate
 demotes the emitted word for that glide immediately. A plain Backspace that
 retracts the whole just-emitted word and its trailing Space does the same,
-including after selecting an alternate. This bounded feedback is local to the
-keyboard process and never observes application text. It affects only candidate
-order: geometry eligibility and displayed geometry scores stay unchanged.
+including after selecting an alternate. The immediate ranking update and
+bounded table are local to the keyboard process; private bounded feedback
+records go to the optional learning sink for persistence. The keyboard never
+observes application text. Feedback affects only candidate order: geometry
+eligibility and displayed geometry scores stay unchanged.
 
 This mode deliberately trades hold-to-repeat for modifier gestures on character
 keys. It is incompatible with the `-O` swipe-word output mode. Compose, modifier,
