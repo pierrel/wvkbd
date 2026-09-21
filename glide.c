@@ -385,6 +385,7 @@ glide_recognize_with_feedback(
     size_t match_count = 0;
     uint64_t threshold;
     char normalized_trace[GLIDE_MAX_TRACE + 1] = {0};
+    size_t normalized_length;
 
     if (!result) {
         return;
@@ -404,8 +405,8 @@ glide_recognize_with_feedback(
     if (!resample(points, length, gesture)) {
         return;
     }
-    if (collapse(trace, length, normalized_trace, GLIDE_MAX_TRACE) < 2)
-        return;
+    normalized_length =
+        collapse(trace, length, normalized_trace, GLIDE_MAX_TRACE);
     threshold = ((uint64_t)geometry->key_height * 9) / 10;
     if (threshold < 12) {
         threshold = 12;
@@ -452,9 +453,11 @@ glide_recognize_with_feedback(
             }
             error = score(gesture, candidate);
             if (error <= threshold) {
-                penalty = (uint64_t)feedback_corrections(
-                              feedback, normalized_trace, (const char *)word,
-                              word_size);
+                penalty = normalized_length < 2
+                              ? 0
+                              : (uint64_t)feedback_corrections(
+                                    feedback, normalized_trace,
+                                    (const char *)word, word_size);
                 penalty = penalty > UINT64_MAX / (threshold + 1)
                               ? UINT64_MAX
                               : penalty * (threshold + 1);

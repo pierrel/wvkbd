@@ -136,6 +136,31 @@ test_feedback_recency_and_eviction(void)
     assert(!strcmp(feedback.entries[GLIDE_FEEDBACK_MAX - 1].trace, "bi"));
 }
 
+static void
+test_single_character_collapsed_trace(void)
+{
+    struct glide_geometry current = geometry();
+    struct glide_point points[2] = {current.letters[0], current.letters[0]};
+    struct glide_result baseline, unchanged;
+    struct glide_feedback unrelated = {
+        .count = 1,
+        .entries = {{.trace = "ab", .word = "area", .corrections = 1}},
+    };
+
+    current.key_height = UINT32_MAX;
+    points[1].x++;
+    glide_recognize("aa", points, 2, &current, &baseline);
+    assert(baseline.count > 0);
+    glide_recognize_with_feedback("aa", points, 2, &current, &unrelated,
+                                  &unchanged);
+    assert(unchanged.count == baseline.count);
+    for (size_t i = 0; i < baseline.count; i++) {
+        assert(unchanged.matches[i].word == baseline.matches[i].word);
+        assert(unchanged.matches[i].length == baseline.matches[i].length);
+        assert(unchanged.matches[i].score == baseline.matches[i].score);
+    }
+}
+
 int
 main(void)
 {
@@ -173,6 +198,7 @@ main(void)
     assert(result.matches[1].score == 0);
     test_feedback_snapshots();
     test_feedback_recency_and_eviction();
+    test_single_character_collapsed_trace();
     glide_recognize("", points, 0, &current, &result);
     assert(result.count == 0);
     glide_recognize("a-", points, 2, &current, &result);
