@@ -66,8 +66,9 @@ Activation requires a press and matching release; sliding away cancels it.
 	retracts the complete emitted word and trailing Space does the same, including
 	after selecting an alternate. The immediate ranking update and bounded table
 	stay local to the keyboard process; private bounded feedback records go to the
-	optional learning sink for persistence. Feedback changes candidate order only,
-	not geometry eligibility or displayed scores.
+	optional learning sink for persistence. The keyboard never observes application
+	text. Feedback changes candidate order only, not geometry eligibility or
+	displayed scores.
 	The gesture threshold is the floor of 40% of the key height, with a 12-pixel
 	minimum. Upward/downward gestures require twice as much vertical as horizontal
 	movement; Control+Alt requires positive horizontal movement at least twice the
