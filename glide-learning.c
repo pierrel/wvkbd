@@ -188,13 +188,9 @@ glide_learning_sink_init(struct glide_learning_sink *sink, int fd)
     socklen_t local_length = sizeof(local), peer_length = sizeof(peer);
     unsigned char random[16];
     char snapshot[GLIDE_FEEDBACK_SNAPSHOT_MAX + 1];
-    char control[CMSG_SPACE(sizeof(int))];
     struct iovec vector = {.iov_base = snapshot,
                            .iov_len = GLIDE_FEEDBACK_SNAPSHOT_MAX};
-    struct msghdr message = {.msg_iov = &vector,
-                             .msg_iovlen = 1,
-                             .msg_control = control,
-                             .msg_controllen = sizeof(control)};
+    struct msghdr message = {.msg_iov = &vector, .msg_iovlen = 1};
     ssize_t snapshot_length;
     static const char hex[] = "0123456789abcdef";
     bool valid =

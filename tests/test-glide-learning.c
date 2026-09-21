@@ -1,4 +1,6 @@
 #include <assert.h>
+#include <dirent.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <stdio.h>
 #include <string.h>
@@ -8,6 +10,21 @@
 #include "glide-learning.h"
 
 static const char session[] = "0123456789abcdef0123456789abcdef";
+
+static size_t
+fd_count(void)
+{
+    DIR *directory = opendir("/proc/self/fd");
+    struct dirent *entry;
+    size_t count = 0;
+
+    assert(directory);
+    while ((entry = readdir(directory)))
+        if (strcmp(entry->d_name, ".") && strcmp(entry->d_name, ".."))
+            count++;
+    closedir(directory);
+    return count;
+}
 
 static struct glide_result
 result_fixture(void)
@@ -67,12 +84,47 @@ main(void)
     close(sockets[0]);
     close(sockets[1]);
 
-    assert(socketpair(AF_UNIX, SOCK_DGRAM, 0, sockets) == 0);
-    assert(sockets[0] == 3);
     length = (size_t)snprintf(
         output, sizeof(output), "feedback-v1\n%s\t%s\tab\tbeta\t65535\n",
         glide_algorithm, glide_dictionary_sha256);
     assert(length < sizeof(output));
+    for (size_t attempt = 0; attempt < 64; attempt++) {
+        int rights[8];
+        char control[CMSG_SPACE(sizeof(rights))] = {0};
+        struct iovec vector = {.iov_base = output, .iov_len = length};
+        struct msghdr message = {.msg_iov = &vector,
+                                 .msg_iovlen = 1,
+                                 .msg_control = control,
+                                 .msg_controllen = sizeof(control)};
+        struct cmsghdr *header = CMSG_FIRSTHDR(&message);
+        size_t before;
+
+        assert(socketpair(AF_UNIX, SOCK_DGRAM, 0, sockets) == 0);
+        assert(sockets[0] == 3);
+        rights[0] = open("/dev/null", O_RDONLY);
+        assert(rights[0] >= 0);
+        for (size_t i = 1; i < sizeof(rights) / sizeof(rights[0]); i++) {
+            rights[i] = dup(rights[0]);
+            assert(rights[i] >= 0);
+        }
+        header->cmsg_level = SOL_SOCKET;
+        header->cmsg_type = SCM_RIGHTS;
+        header->cmsg_len = CMSG_LEN(sizeof(rights));
+        memcpy(CMSG_DATA(header), rights, sizeof(rights));
+        assert(sendmsg(sockets[1], &message, 0) == (ssize_t)length);
+        before = fd_count();
+        glide_learning_sink_init(&sink, sockets[0]);
+        assert(sink.fd == 3);
+        assert(sink.feedback.count == 0);
+        assert(fd_count() == before);
+        close(sink.fd);
+        close(sockets[1]);
+        for (size_t i = 0; i < sizeof(rights) / sizeof(rights[0]); i++)
+            close(rights[i]);
+    }
+
+    assert(socketpair(AF_UNIX, SOCK_DGRAM, 0, sockets) == 0);
+    assert(sockets[0] == 3);
     assert(send(sockets[1], output, length, 0) == (ssize_t)length);
     glide_learning_sink_init(&sink, sockets[0]);
     assert(sink.fd == 3);
