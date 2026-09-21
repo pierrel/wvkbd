@@ -96,6 +96,44 @@ test_feedback_snapshots(void)
                     glide_algorithm, glide_dictionary_sha256, glide_algorithm,
                     glide_dictionary_sha256) > 0);
     assert(!glide_feedback_parse(&feedback, snapshot, strlen(snapshot)));
+
+    assert(!glide_feedback_parse(&feedback, NULL, 0));
+    length = (size_t)snprintf(
+        snapshot, sizeof(snapshot), "feedback-v1\n%s\t%s\tab\tbeta\t1",
+        glide_algorithm, glide_dictionary_sha256);
+    assert(length + 3 < sizeof(snapshot));
+    snapshot[length++] = '\0';
+    snapshot[length++] = '2';
+    snapshot[length++] = '\n';
+    snapshot[length] = '\0';
+    assert(!glide_feedback_parse(&feedback, snapshot, length));
+}
+
+static void
+test_feedback_recency_and_eviction(void)
+{
+    struct glide_feedback feedback = {0};
+    char trace[3] = {0};
+
+    assert(glide_feedback_reject(&feedback, "ab", 2, "alpha", 5));
+    assert(glide_feedback_reject(&feedback, "ac", 2, "beta", 4));
+    assert(glide_feedback_reject(&feedback, "ab", 2, "alpha", 5));
+    assert(feedback.count == 2);
+    assert(!strcmp(feedback.entries[0].trace, "ac"));
+    assert(!strcmp(feedback.entries[1].trace, "ab"));
+    assert(feedback.entries[1].corrections == 2);
+
+    feedback = (struct glide_feedback){0};
+    for (size_t i = 0; i <= GLIDE_FEEDBACK_MAX; i++) {
+        trace[0] = (char)('a' + i / 25);
+        trace[1] = (char)('b' + i % 25);
+        if (trace[0] == trace[1])
+            trace[1] = 'a';
+        assert(glide_feedback_reject(&feedback, trace, 2, "alpha", 5));
+    }
+    assert(feedback.count == GLIDE_FEEDBACK_MAX);
+    assert(!strcmp(feedback.entries[0].trace, "ac"));
+    assert(!strcmp(feedback.entries[GLIDE_FEEDBACK_MAX - 1].trace, "bi"));
 }
 
 int
@@ -134,6 +172,7 @@ main(void)
     assert(!memcmp(result.matches[1].word, "to", 2));
     assert(result.matches[1].score == 0);
     test_feedback_snapshots();
+    test_feedback_recency_and_eviction();
     glide_recognize("", points, 0, &current, &result);
     assert(result.count == 0);
     glide_recognize("a-", points, 2, &current, &result);

@@ -144,15 +144,18 @@ glide_feedback_parse(struct glide_feedback *feedback, char *snapshot,
         char word[GLIDE_MAX_WORD + 1];
     } seen[GLIDE_FEEDBACK_MAX];
     size_t entries = 0;
-    char *line = snapshot;
-    char *end = snapshot + length;
+    char *line;
+    char *end;
 
     if (!feedback || !snapshot || length < sizeof("feedback-v1\n") - 1 ||
-        length > GLIDE_FEEDBACK_SNAPSHOT_MAX || snapshot[length] != '\0') {
+        length > GLIDE_FEEDBACK_SNAPSHOT_MAX || snapshot[length] != '\0' ||
+        memchr(snapshot, '\0', length)) {
         if (feedback)
             *feedback = (struct glide_feedback){0};
         return false;
     }
+    line = snapshot;
+    end = snapshot + length;
     if (memcmp(snapshot, "feedback-v1\n", sizeof("feedback-v1\n") - 1))
         goto invalid;
     line += sizeof("feedback-v1\n") - 1;
