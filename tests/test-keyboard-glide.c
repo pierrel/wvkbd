@@ -1,4 +1,6 @@
 #include <assert.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -85,7 +87,7 @@ commit_word(struct kbd *keyboard, const char *word, size_t length,
         .matches = {{.word = word, .length = length}},
     };
 
-    return kbd_commit_glide_result(keyboard, &result, time);
+    return kbd_commit_glide_result(keyboard, &result, "abc", 3, time);
 }
 
 static void
@@ -496,7 +498,7 @@ test_candidate_touch_replacement(void)
     keyboard = &fixture.keyboard;
     keyboard->mods = Shift;
     reset_events();
-    assert(kbd_commit_glide_result(keyboard, &result, 9));
+    assert(kbd_commit_glide_result(keyboard, &result, "abc", 3, 9));
     assert(keyboard->candidates.count == 3);
     assert(keyboard->candidates.case_mods == Shift);
     assert(keyboard->mods == 0);
@@ -518,7 +520,7 @@ test_candidate_touch_replacement(void)
     assert(event_count == 0);
 
     keyboard->mods = Shift;
-    assert(kbd_commit_glide_result(keyboard, &result, 12));
+    assert(kbd_commit_glide_result(keyboard, &result, "abc", 3, 12));
     reset_events();
     assert(kbd_candidate_touch_down(keyboard, 42, 150, 30) ==
            KbdCandidateClaimed);
@@ -544,6 +546,54 @@ test_candidate_touch_replacement(void)
 }
 
 static void
+test_replacement_and_exact_erase_emit_only_the_rejected_units(void)
+{
+    struct candidate_fixture fixture;
+    struct glide_result result = candidate_result(3);
+    struct glide_learning_sink learning = {.fd = -1};
+    struct key backspace = {.type = Code, .code = KEY_BACKSPACE};
+    char record[GLIDE_LEARNING_JSON_MAX];
+    int sockets[2];
+    ssize_t length;
+
+    assert(socketpair(AF_UNIX, SOCK_DGRAM, 0, sockets) == 0);
+    learning.fd = sockets[0];
+    candidate_fixture_init(&fixture);
+    fixture.keyboard.learning = &learning;
+    reset_events();
+    assert(kbd_commit_glide_result(&fixture.keyboard, &result, "abc", 3, 1));
+    assert(kbd_candidate_touch_down(&fixture.keyboard, 1, 150, 30) ==
+           KbdCandidateClaimed);
+    assert(kbd_candidate_touch_up(&fixture.keyboard, 1, 2) == KbdCandidateOwned);
+    length = recv(sockets[1], record, sizeof(record) - 1, 0);
+    assert(length > 0);
+    record[length] = '\0';
+    assert(strstr(record, "\"trace\":\"abc\""));
+    assert(strstr(record, "\"word\":\"hello\""));
+    reset_events();
+    assert(kbd_begin_glide_followup(&fixture.keyboard, &backspace, 3));
+    length = recv(sockets[1], record, sizeof(record) - 1, 0);
+    assert(length > 0);
+    record[length] = '\0';
+    assert(strstr(record, "\"word\":\"help\""));
+    assert(!kbd_begin_glide_followup(&fixture.keyboard, &backspace, 4));
+    assert(fcntl(sockets[1], F_SETFL, O_NONBLOCK) == 0);
+    assert(recv(sockets[1], record, sizeof(record), 0) < 0 && errno == EAGAIN);
+    reset_events();
+    assert(kbd_commit_glide_result(&fixture.keyboard, &result, "abc", 3, 5));
+    assert(kbd_candidate_touch_down(&fixture.keyboard, 5, 250, 30) ==
+           KbdCandidateClaimed);
+    assert(kbd_candidate_touch_up(&fixture.keyboard, 5, 6) == KbdCandidateOwned);
+    length = recv(sockets[1], record, sizeof(record) - 1, 0);
+    assert(length > 0);
+    record[length] = '\0';
+    assert(strstr(record, "\"word\":\"hello\""));
+    close(sockets[0]);
+    close(sockets[1]);
+    candidate_fixture_destroy(&fixture);
+}
+
+static void
 test_candidate_hit_testing_and_pointer_ownership(void)
 {
     struct candidate_fixture fixture;
@@ -552,14 +602,14 @@ test_candidate_hit_testing_and_pointer_ownership(void)
 
     candidate_fixture_init(&fixture);
     keyboard = &fixture.keyboard;
-    assert(kbd_commit_glide_result(keyboard, &result, 1));
+    assert(kbd_commit_glide_result(keyboard, &result, "abc", 3, 1));
     reset_events();
     assert(kbd_candidate_touch_down(keyboard, 1, 100, 30) ==
            KbdCandidateDismissed);
     assert(keyboard->candidates.count == 0);
 
     result.count = 2;
-    assert(kbd_commit_glide_result(keyboard, &result, 1));
+    assert(kbd_commit_glide_result(keyboard, &result, "abc", 3, 1));
     reset_events();
     assert(kbd_candidate_touch_down(keyboard, 1, -1, 0) == KbdCandidateMiss);
     assert(keyboard->candidates.count == 0);
@@ -567,14 +617,14 @@ test_candidate_hit_testing_and_pointer_ownership(void)
     assert(kbd_candidate_touch_down(keyboard, 1, 0, -1) == KbdCandidateMiss);
     assert(kbd_candidate_touch_down(keyboard, 1, 301, 0) == KbdCandidateMiss);
     assert(kbd_candidate_touch_down(keyboard, 1, 0, 60) == KbdCandidateMiss);
-    assert(kbd_commit_glide_result(keyboard, &result, 1));
+    assert(kbd_commit_glide_result(keyboard, &result, "abc", 3, 1));
     reset_events();
     assert(kbd_candidate_touch_down(keyboard, 1, 250, 30) ==
            KbdCandidateDismissed);
     assert(keyboard->candidates.count == 0);
     assert(event_count == 0);
 
-    assert(kbd_commit_glide_result(keyboard, &result, 2));
+    assert(kbd_commit_glide_result(keyboard, &result, "abc", 3, 2));
     reset_events();
     assert(kbd_candidate_pointer_button(keyboard, 272, true, 150, 30, 3) ==
            KbdCandidateClaimed);
@@ -595,7 +645,7 @@ test_candidate_hit_testing_and_pointer_ownership(void)
 
     result.count = GLIDE_MAX_MATCHES + 1;
     reset_events();
-    assert(!kbd_commit_glide_result(keyboard, &result, 6));
+    assert(!kbd_commit_glide_result(keyboard, &result, "abc", 3, 6));
     assert(event_count == 0);
     assert(keyboard->candidates.count == 0);
     candidate_fixture_destroy(&fixture);
@@ -610,7 +660,7 @@ test_candidate_clear_resets_owned_session(void)
 
     candidate_fixture_init(&fixture);
     keyboard = &fixture.keyboard;
-    assert(kbd_commit_glide_result(keyboard, &result, 1));
+    assert(kbd_commit_glide_result(keyboard, &result, "abc", 3, 1));
     assert(kbd_candidate_touch_down(keyboard, 41, 150, 30) ==
            KbdCandidateClaimed);
     assert(keyboard->candidates.owner == KbdCandidateOwnerTouch);
@@ -639,7 +689,7 @@ test_candidate_zero_and_case_replacement(void)
         size_t word_start;
 
         keyboard->mods = cases[i];
-        assert(kbd_commit_glide_result(keyboard, &result, 1));
+        assert(kbd_commit_glide_result(keyboard, &result, "abc", 3, 1));
         assert(keyboard->mods == live_mods);
         reset_events();
         assert(kbd_candidate_touch_down(keyboard, 1, 10, 30) ==
@@ -869,6 +919,7 @@ main(void)
     test_glide_undo();
     test_glide_admission();
     test_candidate_touch_replacement();
+    test_replacement_and_exact_erase_emit_only_the_rejected_units();
     test_candidate_hit_testing_and_pointer_ownership();
     test_candidate_clear_resets_owned_session();
     test_candidate_zero_and_case_replacement();

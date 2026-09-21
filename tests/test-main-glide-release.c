@@ -146,9 +146,11 @@ kbd_activate_key(struct kbd *kb, struct key *key, uint32_t time,
 
 bool
 kbd_commit_glide_result(struct kbd *kb, const struct glide_result *result,
-                        uint32_t time)
+                        const char *trace, size_t trace_length, uint32_t time)
 {
     (void)time;
+    (void)trace;
+    (void)trace_length;
     candidate_commits++;
     if (!result || !result->count) {
         return false;

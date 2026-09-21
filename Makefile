@@ -128,7 +128,7 @@ tests/fuzz-glide-learning: tests/fuzz-glide-learning.c glide-learning.c glide-le
 	clang -std=c11 -Wall -Wextra -Werror -I. -g -fsanitize=fuzzer,address,undefined -o $@ tests/fuzz-glide-learning.c glide-learning.c glide.c
 
 fuzz-learning: tests/fuzz-glide-learning
-	ASAN_OPTIONS=detect_leaks=0 timeout --preserve-status 35 ./tests/fuzz-glide-learning -max_total_time=30 -max_len=4096 -timeout=2
+	ASAN_OPTIONS=detect_leaks=0 timeout --preserve-status 35 ./tests/fuzz-glide-learning -max_total_time=30 -max_len=5964 -timeout=2
 
 test-cli: config.h tests/test-cli.sh ${BIN}
 	tests/test-cli.sh ./${BIN}

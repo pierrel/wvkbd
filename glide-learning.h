@@ -25,6 +25,7 @@ struct glide_learning_sink {
     uint64_t pending_gesture;
     bool pending_has_candidates;
     bool correction_pending;
+    struct glide_feedback feedback;
 };
 
 size_t glide_learning_encode_gesture(const char *session, uint64_t gesture,
@@ -49,6 +50,9 @@ void glide_learning_resolve(struct glide_learning_sink *sink,
 void glide_learning_mark_retracted(struct glide_learning_sink *sink);
 void glide_learning_resolve_correction(struct glide_learning_sink *sink,
                                        bool reswiped);
+void glide_learning_reject(struct glide_learning_sink *sink, const char *trace,
+                           size_t trace_length, const char *word,
+                           size_t word_length);
 void glide_learning_clear(struct glide_learning_sink *sink);
 
 #endif

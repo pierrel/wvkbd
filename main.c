@@ -497,16 +497,19 @@ wl_touch_up(void *data, struct wl_touch *wl_touch, uint32_t serial,
 
             if (!result.invalid && result.endpoint_mapped &&
                 kbd_glide_geometry(&keyboard, &geometry)) {
-                glide_recognize(result.trace, result.trace_points,
-                                result.trace_length, &geometry, &matches);
+                glide_recognize_with_feedback(
+                    result.trace, result.trace_points, result.trace_length,
+                    &geometry, &glide_learning.feedback, &matches);
                 if (glide_learning.correction_pending) {
                     glide_learning_resolve_correction(&glide_learning, true);
                 } else if (glide_learning.pending_has_candidates) {
                     glide_learning_resolve(&glide_learning,
                                            GLIDE_LEARNING_TOP_COMMITTED, 0);
                 }
-                emitted =
-                    kbd_commit_glide_result(&keyboard, &matches, result.time);
+                emitted = kbd_commit_glide_result(&keyboard, &matches,
+                                                  result.trace,
+                                                  result.trace_length,
+                                                  result.time);
                 observed = glide_learning_observe(
                     &glide_learning, result.trace, result.trace_points,
                     result.trace_length, &geometry, &matches);
@@ -1460,7 +1463,8 @@ usage(char *argv0)
             "  --mod-swipe - Tap, Ctrl/Alt/Ctrl+Alt swipes, or glide Latin "
             "letters\n");
     fprintf(stderr,
-            "  --glide-learning-fd 3 - Send private swipe observations on fd 3\n");
+            "  --glide-learning-fd 3 - Receive one private snapshot and send "
+            "private swipe feedback on fd 3\n");
     fprintf(stderr, "  -H [int]    - Height in pixels\n");
     fprintf(stderr, "  -L [int]    - Landscape height in pixels\n");
     fprintf(stderr, "  -R [int]    - Rounding radius in pixels\n");

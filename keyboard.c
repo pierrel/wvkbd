@@ -818,6 +818,28 @@ void
 kbd_clear_glide_undo(struct kbd *kb)
 {
     kb->glide_undo_count = 0;
+    kb->glide_trace_length = 0;
+    kb->glide_trace[0] = '\0';
+    kb->glide_word_length = 0;
+    kb->glide_word[0] = '\0';
+}
+
+static void
+kbd_set_glide_unit(struct kbd *kb, const char *trace, size_t trace_length,
+                   const char *word, size_t word_length)
+{
+    if (!trace || trace_length < 2 || trace_length > GLIDE_MAX_TRACE || !word ||
+        word_length < 2 || word_length > GLIDE_MAX_WORD) {
+        kb->glide_trace_length = 0;
+        kb->glide_word_length = 0;
+        return;
+    }
+    memcpy(kb->glide_trace, trace, trace_length);
+    kb->glide_trace[trace_length] = '\0';
+    kb->glide_trace_length = trace_length;
+    memcpy(kb->glide_word, word, word_length);
+    kb->glide_word[word_length] = '\0';
+    kb->glide_word_length = word_length;
 }
 
 static void
@@ -870,7 +892,7 @@ kbd_show_learning_choices(struct kbd *kb)
 
 bool
 kbd_commit_glide_result(struct kbd *kb, const struct glide_result *result,
-                        uint32_t time)
+                        const char *trace, size_t trace_length, uint32_t time)
 {
     uint32_t codes[GLIDE_MAX_MATCHES][GLIDE_MAX_WORD];
     uint8_t case_mods;
@@ -893,6 +915,8 @@ kbd_commit_glide_result(struct kbd *kb, const struct glide_result *result,
     memcpy(kb->candidates.matches, result->matches,
            result->count * sizeof(result->matches[0]));
     kb->candidates.case_mods = case_mods;
+    kbd_set_glide_unit(kb, trace, trace_length, result->matches[0].word,
+                       result->matches[0].length);
     return true;
 }
 
@@ -1006,6 +1030,10 @@ kbd_candidate_release(struct kbd *kb, enum kbd_candidate_owner owner,
     size_t selected_slot;
     bool commit;
     bool learning_choices;
+    char trace[GLIDE_MAX_TRACE + 1];
+    char old_word[GLIDE_MAX_WORD + 1];
+    size_t trace_length;
+    size_t old_word_length;
 
     if (!kb->candidates.count ||
         kb->candidates.owner == KbdCandidateOwnerNone) {
@@ -1020,6 +1048,10 @@ kbd_candidate_release(struct kbd *kb, enum kbd_candidate_owner owner,
     selected_slot = kb->candidates.pressed_slot;
     case_mods = kb->candidates.case_mods;
     undo_count = kb->glide_undo_count;
+    trace_length = kb->glide_trace_length;
+    old_word_length = kb->glide_word_length;
+    memcpy(trace, kb->glide_trace, sizeof(trace));
+    memcpy(old_word, kb->glide_word, sizeof(old_word));
     learning_choices = kb->candidates.learning_choices;
     if (!learning_choices)
         selected = kb->candidates.matches[selected_slot];
@@ -1042,6 +1074,12 @@ kbd_candidate_release(struct kbd *kb, enum kbd_candidate_owner owner,
         kbd_emit_backspaces(kb, undo_count, time, false);
         kbd_emit_ascii_word_case(kb, selected.word, selected.length, codes,
                                  time, case_mods, false);
+        if (selected_slot && selected_slot < GLIDE_MAX_MATCHES && trace_length &&
+            old_word_length)
+            glide_learning_reject(kb->learning, trace, trace_length, old_word,
+                                  old_word_length);
+        kbd_set_glide_unit(kb, trace, trace_length, selected.word,
+                           selected.length);
         glide_learning_resolve(
             kb->learning,
             selected_slot ? GLIDE_LEARNING_ALTERNATE_SELECTED
@@ -1137,6 +1175,10 @@ bool
 kbd_begin_glide_followup(struct kbd *kb, const struct key *key, uint32_t time)
 {
     uint8_t count = kb->glide_undo_count;
+    char trace[GLIDE_MAX_TRACE + 1];
+    char word[GLIDE_MAX_WORD + 1];
+    size_t trace_length = kb->glide_trace_length;
+    size_t word_length = kb->glide_word_length;
     bool correction_pending =
         kb->learning && kb->learning->correction_pending;
 
@@ -1172,10 +1214,15 @@ kbd_begin_glide_followup(struct kbd *kb, const struct key *key, uint32_t time)
         return false;
     }
 
+    memcpy(trace, kb->glide_trace, sizeof(trace));
+    memcpy(word, kb->glide_word, sizeof(word));
     kbd_clear_glide_undo(kb);
     if (key->code == KEY_BACKSPACE && key->code_mod == NoMod &&
         !(kb->mods & Shift)) {
         kbd_emit_backspaces(kb, count, time, true);
+        if (trace_length && word_length)
+            glide_learning_reject(kb->learning, trace, trace_length, word,
+                                  word_length);
         glide_learning_mark_retracted(kb->learning);
         return true;
     }

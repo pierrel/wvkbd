@@ -1,0 +1,32 @@
+#+title: Swipe correction feedback implementation status
+#+date: 2026-09-20
+
+* Current status
+
+The implementation specified by
+=2026-09-18-swipe-correction-feedback.org= has completed implementation and
+local implementation review.  The recovery bytes described by that design
+were not accepted unchanged.  They were replaced or reworked by the assigned
+implementor, reviewed against the accepted design, and submitted with the
+focused and full verification evidence for wvkbd PR 8.
+
+This record changes only the implementation status.  The accepted behavior,
+bounds, wire format, failure semantics, and verification requirements remain
+those of the 2026-09-18 design.
+
+* Historical supersessions
+
+This record directly supersedes the =State and design revision= statement in
+=2026-09-18-swipe-correction-feedback.org= that implementation and
+implementation review remain pending.  Both phases are complete.
+
+This record directly supersedes only the sentence beginning =The current
+root-authored partial C diff= in =Affected wvkbd artifacts= in that document.
+The root-authored recovery bytes remained unaccepted as written, but the
+assigned implementor replaced or reworked them into the reviewed
+implementation.
+
+This record directly supersedes the final paragraph of =Review and recovery
+disposition= in that document only as a description of current status.  Its
+instruction to reject the untested partial recovery bytes was followed; it no
+longer describes the reviewed implementation now carried by the pull request.

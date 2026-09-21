@@ -9,7 +9,7 @@ trap 'rm -rf -- "$scratch"' EXIT HUP INT TERM
 "$binary" --help >"$scratch/help" 2>&1
 grep -F -- '--mod-swipe - Tap, Ctrl/Alt/Ctrl+Alt swipes, or glide Latin letters' \
     "$scratch/help" >/dev/null
-grep -F -- '--glide-learning-fd 3 - Send private swipe observations on fd 3' \
+grep -F -- '--glide-learning-fd 3 - Receive one private snapshot and send private swipe feedback on fd 3' \
     "$scratch/help" >/dev/null
 if "$binary" --glide-learning-fd 4 >"$scratch/learning-invalid" 2>&1; then
     printf '%s\n' 'non-fd3 learning transport was accepted' >&2

@@ -54,6 +54,113 @@ expect_ranked(const char *trace, const char *const *words, size_t count)
     }
 }
 
+static void
+test_feedback_snapshots(void)
+{
+    char snapshot[GLIDE_FEEDBACK_SNAPSHOT_MAX + 1];
+    char trace[65];
+    char algorithm[25];
+    char dictionary[65];
+    char word[25];
+    struct glide_feedback feedback;
+    size_t length = 0;
+
+    memset(algorithm, 'a', sizeof(algorithm) - 1);
+    algorithm[sizeof(algorithm) - 1] = '\0';
+    memset(dictionary, 'b', sizeof(dictionary) - 1);
+    dictionary[sizeof(dictionary) - 1] = '\0';
+    memset(word, 'd', sizeof(word) - 1);
+    word[sizeof(word) - 1] = '\0';
+    length += (size_t)snprintf(snapshot + length, sizeof(snapshot) - length,
+                               "feedback-v1\n");
+    for (size_t i = 0; i < GLIDE_FEEDBACK_MAX; i++) {
+        memset(trace, 0, sizeof(trace));
+        for (size_t j = 0; j < 62; j++)
+            trace[j] = j % 2 ? 'b' : 'a';
+        trace[62] = (char)('c' + i / 2);
+        trace[63] = i % 2 ? 'b' : 'a';
+        length += (size_t)snprintf(snapshot + length, sizeof(snapshot) - length,
+                                   "%s\t%s\t%s\t%s\t65535\n", algorithm,
+                                   dictionary, trace, word);
+    }
+    assert(length == GLIDE_FEEDBACK_SNAPSHOT_MAX);
+    snapshot[length] = '\0';
+    assert(glide_feedback_parse(&feedback, snapshot, length));
+    assert(feedback.count == 0);
+    snapshot[length - 1] = '\0';
+    assert(!glide_feedback_parse(&feedback, snapshot, length));
+    snapshot[length - 1] = '\n';
+    assert(!glide_feedback_parse(&feedback, snapshot, length - 1));
+    assert(snprintf(snapshot, sizeof(snapshot),
+                    "feedback-v1\n%s\t%s\tab\tbeta\t1\n%s\t%s\tab\tbeta\t2\n",
+                    glide_algorithm, glide_dictionary_sha256, glide_algorithm,
+                    glide_dictionary_sha256) > 0);
+    assert(!glide_feedback_parse(&feedback, snapshot, strlen(snapshot)));
+
+    assert(!glide_feedback_parse(&feedback, NULL, 0));
+    length = (size_t)snprintf(
+        snapshot, sizeof(snapshot), "feedback-v1\n%s\t%s\tab\tbeta\t1",
+        glide_algorithm, glide_dictionary_sha256);
+    assert(length + 3 < sizeof(snapshot));
+    snapshot[length++] = '\0';
+    snapshot[length++] = '2';
+    snapshot[length++] = '\n';
+    snapshot[length] = '\0';
+    assert(!glide_feedback_parse(&feedback, snapshot, length));
+}
+
+static void
+test_feedback_recency_and_eviction(void)
+{
+    struct glide_feedback feedback = {0};
+    char trace[3] = {0};
+
+    assert(glide_feedback_reject(&feedback, "ab", 2, "alpha", 5));
+    assert(glide_feedback_reject(&feedback, "ac", 2, "beta", 4));
+    assert(glide_feedback_reject(&feedback, "ab", 2, "alpha", 5));
+    assert(feedback.count == 2);
+    assert(!strcmp(feedback.entries[0].trace, "ac"));
+    assert(!strcmp(feedback.entries[1].trace, "ab"));
+    assert(feedback.entries[1].corrections == 2);
+
+    feedback = (struct glide_feedback){0};
+    for (size_t i = 0; i <= GLIDE_FEEDBACK_MAX; i++) {
+        trace[0] = (char)('a' + i / 25);
+        trace[1] = (char)('b' + i % 25);
+        if (trace[0] == trace[1])
+            trace[1] = 'a';
+        assert(glide_feedback_reject(&feedback, trace, 2, "alpha", 5));
+    }
+    assert(feedback.count == GLIDE_FEEDBACK_MAX);
+    assert(!strcmp(feedback.entries[0].trace, "ac"));
+    assert(!strcmp(feedback.entries[GLIDE_FEEDBACK_MAX - 1].trace, "bi"));
+}
+
+static void
+test_single_character_collapsed_trace(void)
+{
+    struct glide_geometry current = geometry();
+    struct glide_point points[2] = {current.letters[0], current.letters[0]};
+    struct glide_result baseline, unchanged;
+    struct glide_feedback unrelated = {
+        .count = 1,
+        .entries = {{.trace = "ab", .word = "area", .corrections = 1}},
+    };
+
+    current.key_height = UINT32_MAX;
+    points[1].x++;
+    glide_recognize("aa", points, 2, &current, &baseline);
+    assert(baseline.count > 0);
+    glide_recognize_with_feedback("aa", points, 2, &current, &unrelated,
+                                  &unchanged);
+    assert(unchanged.count == baseline.count);
+    for (size_t i = 0; i < baseline.count; i++) {
+        assert(unchanged.matches[i].word == baseline.matches[i].word);
+        assert(unchanged.matches[i].length == baseline.matches[i].length);
+        assert(unchanged.matches[i].score == baseline.matches[i].score);
+    }
+}
+
 int
 main(void)
 {
@@ -69,6 +176,10 @@ main(void)
     static const char *const one[] = {"hello"};
     static const char *const two[] = {"to", "too"};
     static const char *const three[] = {"of", "off", "oof"};
+    struct glide_feedback feedback = {
+        .count = 1,
+        .entries = {{.trace = "to", .word = "to", .corrections = 1}},
+    };
 
     expect("helo", "hello");
     memset(too_long, 'a', sizeof(too_long));
@@ -78,6 +189,16 @@ main(void)
     expect_ranked("helo", one, 1);
     expect_ranked("to", two, 2);
     expect_ranked("of", three, 3);
+    for (size_t i = 0; i < 2; i++)
+        points[i] = current.letters["to"[i] - 'a'];
+    glide_recognize_with_feedback("to", points, 2, &current, &feedback, &result);
+    assert(result.count == 2);
+    assert(!memcmp(result.matches[0].word, "too", 3));
+    assert(!memcmp(result.matches[1].word, "to", 2));
+    assert(result.matches[1].score == 0);
+    test_feedback_snapshots();
+    test_feedback_recency_and_eviction();
+    test_single_character_collapsed_trace();
     glide_recognize("", points, 0, &current, &result);
     assert(result.count == 0);
     glide_recognize("a-", points, 2, &current, &result);
