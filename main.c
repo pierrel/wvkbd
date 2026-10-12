@@ -1438,7 +1438,8 @@ visibility_surface_configure(void *data,
     cancel_visibility_input();
     reset_input_lifecycle(last_input_time);
     visibility_configured = true;
-    visibility_width = w;
+    visibility_width =
+        w < VISIBILITY_CONTROL_WIDTH ? VISIBILITY_CONTROL_WIDTH : w;
     resize_visibility_control();
     draw_visibility_control(false);
 }

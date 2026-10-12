@@ -63,6 +63,10 @@ static char configure_events[16];
 static size_t configure_event_count;
 static bool track_configure_order;
 static bool track_visibility_geometry;
+static bool track_layer_creation;
+static int created_surfaces[2], created_layers[2];
+static char layer_creation_events[2];
+static size_t created_surface_count, created_layer_count;
 static int test_visibility_surface, test_visibility_layer;
 static uint32_t visibility_size_w, visibility_size_h, visibility_anchor;
 static int32_t visibility_zone;
@@ -83,6 +87,23 @@ __wrap_wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
                               const struct wl_interface *interface,
                               uint32_t version, uint32_t flags, ...)
 {
+    if (track_layer_creation && interface == &wl_surface_interface) {
+        assert(created_surface_count < 2);
+        return (struct wl_proxy *)&created_surfaces[created_surface_count++];
+    }
+    if (track_layer_creation && interface == &zwlr_layer_surface_v1_interface) {
+        va_list args;
+        va_start(args, flags);
+        (void)va_arg(args, void *);
+        struct wl_surface *surface = va_arg(args, struct wl_surface *);
+        va_end(args);
+        assert(created_layer_count < 2);
+        assert(surface == visibility_draw_surf.surf ||
+               surface == draw_surf.surf);
+        layer_creation_events[created_layer_count] =
+            surface == visibility_draw_surf.surf ? 'V' : 'K';
+        return (struct wl_proxy *)&created_layers[created_layer_count++];
+    }
     if (track_visibility_geometry) {
         if (interface == &wl_surface_interface) {
             return (struct wl_proxy *)&test_visibility_surface;
@@ -568,6 +589,8 @@ reset(void)
     visibility_configured = false;
     visibility_width = VISIBILITY_CONTROL_WIDTH;
     track_visibility_geometry = false;
+    track_layer_creation = false;
+    created_surface_count = created_layer_count = 0;
     visibility_preferred_fractional_scale = 0;
     pointer_on_visibility = false;
     pointer_inside_visibility = false;
@@ -1326,6 +1349,25 @@ prepare_visibility_surfaces(int *keyboard_surface, int *control_surface)
 }
 
 static void
+test_visibility_full_hide_show_creates_strip_before_grid(void)
+{
+    reset();
+    visibility = VisibilityFullyHidden;
+    track_layer_creation = true;
+    show();
+    assert(created_surface_count == 2 && created_layer_count == 2);
+    assert(layer_creation_events[0] == 'V' && layer_creation_events[1] == 'K');
+    assert(visibility == VisibilityExpanded);
+    hide();
+    assert(visibility == VisibilityFullyHidden);
+    created_surface_count = created_layer_count = 0;
+    show();
+    assert(created_surface_count == 2 && created_layer_count == 2);
+    assert(layer_creation_events[0] == 'V' && layer_creation_events[1] == 'K');
+    track_layer_creation = false;
+}
+
+static void
 test_visibility_strip_reserves_app_space_and_routes_only_button(void)
 {
     reset();
@@ -1338,6 +1380,21 @@ test_visibility_strip_reserves_app_space_and_routes_only_button(void)
                                  ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
                                  ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT));
     assert(visibility_zone == VISIBILITY_CONTROL_HEIGHT);
+    uint32_t narrow_widths[] = {0, 1, VISIBILITY_CONTROL_WIDTH - 1,
+                                VISIBILITY_CONTROL_WIDTH};
+    for (size_t i = 0; i < sizeof(narrow_widths) / sizeof(narrow_widths[0]);
+         i++) {
+        visibility_surface_configure(NULL, visibility_layer_surface, 1,
+                                     narrow_widths[i],
+                                     VISIBILITY_CONTROL_HEIGHT);
+        assert(resized_width == VISIBILITY_CONTROL_WIDTH);
+        assert(visibility_fixed_point_inside(wl_fixed_from_int(0),
+                                             wl_fixed_from_int(10)));
+        assert(visibility_fixed_point_inside(wl_fixed_from_int(91),
+                                             wl_fixed_from_int(10)));
+        assert(!visibility_fixed_point_inside(wl_fixed_from_int(92),
+                                              wl_fixed_from_int(10)));
+    }
     visibility_surface_configure(NULL, visibility_layer_surface, 1, 360,
                                  VISIBILITY_CONTROL_HEIGHT);
     assert(resized_width == 360);
@@ -1797,6 +1854,7 @@ main(void)
     test_non_code_key_cannot_extend_glide_trace();
     test_candidate_routing_precedes_normal_input();
     test_pointer_coordinates_and_button_ownership();
+    test_visibility_full_hide_show_creates_strip_before_grid();
     test_visibility_strip_reserves_app_space_and_routes_only_button();
     test_visibility_input_matching_and_permanent_cancel();
     test_visibility_touch_routes_and_collapses();
