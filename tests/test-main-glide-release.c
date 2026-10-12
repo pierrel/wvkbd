@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <string.h>
 
 #include <wayland-client-core.h>
@@ -61,6 +62,10 @@ static size_t draw_event_count;
 static char configure_events[16];
 static size_t configure_event_count;
 static bool track_configure_order;
+static bool track_visibility_geometry;
+static int test_visibility_surface, test_visibility_layer;
+static uint32_t visibility_size_w, visibility_size_h, visibility_anchor;
+static int32_t visibility_zone;
 static enum layout_id test_layers[] = {Index, NumLayouts};
 
 static void seed_deferred_glide(void);
@@ -78,6 +83,27 @@ __wrap_wl_proxy_marshal_flags(struct wl_proxy *proxy, uint32_t opcode,
                               const struct wl_interface *interface,
                               uint32_t version, uint32_t flags, ...)
 {
+    if (track_visibility_geometry) {
+        if (interface == &wl_surface_interface) {
+            return (struct wl_proxy *)&test_visibility_surface;
+        }
+        if (interface == &zwlr_layer_surface_v1_interface) {
+            return (struct wl_proxy *)&test_visibility_layer;
+        }
+        if (proxy == (struct wl_proxy *)&test_visibility_layer) {
+            va_list args;
+            va_start(args, flags);
+            if (opcode == ZWLR_LAYER_SURFACE_V1_SET_SIZE) {
+                visibility_size_w = va_arg(args, uint32_t);
+                visibility_size_h = va_arg(args, uint32_t);
+            } else if (opcode == ZWLR_LAYER_SURFACE_V1_SET_ANCHOR) {
+                visibility_anchor = va_arg(args, uint32_t);
+            } else if (opcode == ZWLR_LAYER_SURFACE_V1_SET_EXCLUSIVE_ZONE) {
+                visibility_zone = va_arg(args, int32_t);
+            }
+            va_end(args);
+        }
+    }
     if (keyboard.vkbd && proxy == (struct wl_proxy *)keyboard.vkbd &&
         opcode == ZWP_VIRTUAL_KEYBOARD_V1_MODIFIERS) {
         modifier_resets++;
@@ -540,6 +566,8 @@ reset(void)
     visibility = VisibilityExpanded;
     visibility_input = (struct visibility_input){0};
     visibility_configured = false;
+    visibility_width = VISIBILITY_CONTROL_WIDTH;
+    track_visibility_geometry = false;
     visibility_preferred_fractional_scale = 0;
     pointer_on_visibility = false;
     pointer_inside_visibility = false;
@@ -1298,6 +1326,42 @@ prepare_visibility_surfaces(int *keyboard_surface, int *control_surface)
 }
 
 static void
+test_visibility_strip_reserves_app_space_and_routes_only_button(void)
+{
+    reset();
+    track_visibility_geometry = true;
+    show_visibility_control();
+    track_visibility_geometry = false;
+    assert(visibility_size_w == 0);
+    assert(visibility_size_h == VISIBILITY_CONTROL_HEIGHT);
+    assert(visibility_anchor == (ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM |
+                                 ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
+                                 ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT));
+    assert(visibility_zone == VISIBILITY_CONTROL_HEIGHT);
+    visibility_surface_configure(NULL, visibility_layer_surface, 1, 360,
+                                 VISIBILITY_CONTROL_HEIGHT);
+    assert(resized_width == 360);
+    assert(!visibility_fixed_point_inside(wl_fixed_from_int(10),
+                                          wl_fixed_from_int(10)));
+    assert(!visibility_fixed_point_inside(wl_fixed_from_double(267.5),
+                                          wl_fixed_from_int(10)));
+    assert(visibility_fixed_point_inside(wl_fixed_from_int(268),
+                                         wl_fixed_from_int(10)));
+    assert(!visibility_fixed_point_inside(wl_fixed_from_int(360),
+                                          wl_fixed_from_int(10)));
+    wl_touch_down(NULL, NULL, 0, 1, visibility_draw_surf.surf, 7,
+                  wl_fixed_from_int(10), wl_fixed_from_int(10));
+    assert(visibility_input.owner == VisibilityInputNone);
+    wl_touch_down(NULL, NULL, 0, 2, visibility_draw_surf.surf, 7,
+                  wl_fixed_from_int(300), wl_fixed_from_int(10));
+    assert(visibility_input.owner == VisibilityInputTouch);
+    wl_touch_motion(NULL, NULL, 3, 7, wl_fixed_from_int(10),
+                    wl_fixed_from_int(10));
+    wl_touch_up(NULL, NULL, 0, 4, 7);
+    assert(visibility == VisibilityExpanded);
+}
+
+static void
 test_visibility_input_matching_and_permanent_cancel(void)
 {
     reset();
@@ -1592,9 +1656,9 @@ test_visibility_show_and_fractional_scale_cancel_control_input(void)
     wl_touch_cancel(NULL, NULL);
     assert(visibility_input.owner == VisibilityInputPointer);
 
-    visibility_surface_configure(NULL, NULL, 0, 0, UINT32_MAX);
+    visibility_surface_configure(NULL, NULL, 0, 360, VISIBILITY_CONTROL_HEIGHT);
     assert(visibility_configured);
-    assert(resized_width == VISIBILITY_CONTROL_WIDTH);
+    assert(resized_width == 360);
     assert(resized_height == VISIBILITY_CONTROL_HEIGHT);
 
     reset();
@@ -1733,6 +1797,7 @@ main(void)
     test_non_code_key_cannot_extend_glide_trace();
     test_candidate_routing_precedes_normal_input();
     test_pointer_coordinates_and_button_ownership();
+    test_visibility_strip_reserves_app_space_and_routes_only_button();
     test_visibility_input_matching_and_permanent_cancel();
     test_visibility_touch_routes_and_collapses();
     test_rejected_control_touch_cannot_release_keyboard_touch();

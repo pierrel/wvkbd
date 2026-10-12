@@ -18,9 +18,10 @@ a feedback buzzer, led blinker, or anything that requires more than what's
 needed to input text quickly. The end product should be a static codebase that
 can be patched to add new features.
 
-The native *Hide* control immediately above the keyboard's bottom-right edge
-collapses it and leaves a bottom-right *Keyboard* tab. The tab reserves no
-application space and restores the keyboard from any focused application.
+The native right-aligned *Hide* control collapses the keyboard and leaves a
+right-aligned *Keyboard* control that restores it from any focused application.
+Both controls occupy a reserved 30-logical-pixel strip, preserving readable
+application content; collapsing returns the key grid's screen area.
 Activation requires a press and matching release; sliding away cancels it.
 
 ## OPTIONS

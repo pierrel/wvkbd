@@ -64,10 +64,11 @@ which you want and in what order you want to cycle through them using the
 `-l` parameter (or `--landscape-layers` for landscape mode). This takes takes a ordered comma separated list of layout names
 that are defined in your layout set.
 
-The keyboard has a native `Hide` control immediately above its bottom-right
-edge. It collapses the keyboard without depending on the focused application
-and leaves a small bottom-right `Keyboard` tab that restores it. The tab has no
-exclusive zone, so the focused application regains the keyboard's screen area.
+The keyboard has a native right-aligned `Hide` control in its own reserved
+strip. It collapses the keyboard without depending on the focused application
+and leaves a right-aligned `Keyboard` control that restores it. The strip reserves
+30 logical pixels in both states so neither control covers application content;
+collapsing returns the key grid's screen area to the focused application.
 Press and release the same control to activate it; sliding away cancels.
 
 The existing process controls are unchanged: `SIGUSR1` fully hides the keyboard

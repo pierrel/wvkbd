@@ -111,6 +111,7 @@ static struct zwlr_layer_surface_v1 *visibility_layer_surface;
 static struct wp_viewport *visibility_draw_surf_viewport;
 static struct wp_fractional_scale_v1 *wfs_visibility_draw_surf;
 static bool visibility_configured;
+static uint32_t visibility_width = VISIBILITY_CONTROL_WIDTH;
 static double visibility_preferred_fractional_scale;
 static bool pointer_on_visibility;
 static bool pointer_inside_visibility;
@@ -268,8 +269,9 @@ visibility_is_control_surface(struct wl_surface *surface)
 static bool
 visibility_fixed_point_inside(wl_fixed_t x, wl_fixed_t y)
 {
-    return x >= 0 && y >= 0 &&
-           x < wl_fixed_from_int(VISIBILITY_CONTROL_WIDTH) &&
+    return x >=
+               wl_fixed_from_int(visibility_width - VISIBILITY_CONTROL_WIDTH) &&
+           y >= 0 && x < wl_fixed_from_int(visibility_width) &&
            y < wl_fixed_from_int(VISIBILITY_CONTROL_HEIGHT);
 }
 
@@ -1143,12 +1145,12 @@ resize_visibility_control(void)
 
     if (visibility_draw_surf_viewport) {
         wp_viewport_set_destination(visibility_draw_surf_viewport,
-                                    VISIBILITY_CONTROL_WIDTH,
+                                    visibility_width,
                                     VISIBILITY_CONTROL_HEIGHT);
     } else {
         wl_surface_set_buffer_scale(visibility_draw_surf.surf, scale);
     }
-    drwsurf_resize(&visibility_draw_surf, VISIBILITY_CONTROL_WIDTH,
+    drwsurf_resize(&visibility_draw_surf, visibility_width,
                    VISIBILITY_CONTROL_HEIGHT, scale);
 }
 
@@ -1237,6 +1239,7 @@ draw_visibility_control(bool pressed)
 {
     struct clr_scheme *scheme;
     const char *label;
+    uint32_t control_x = visibility_width - VISIBILITY_CONTROL_WIDTH;
 
     if (!visibility_draw_surf.surf || !visibility_draw_surf.buf ||
         !visibility_configured) {
@@ -1245,15 +1248,15 @@ draw_visibility_control(bool pressed)
     scheme = &keyboard.schemes[1];
     label = visibility == VisibilityCollapsed ? "Keyboard" : "Hide";
     drw_fill_rectangle(&visibility_draw_surf, keyboard.schemes[0].bg, 0, 0,
-                       VISIBILITY_CONTROL_WIDTH, VISIBILITY_CONTROL_HEIGHT, 0);
-    draw_inset(&visibility_draw_surf, 0, 0, VISIBILITY_CONTROL_WIDTH,
+                       visibility_width, VISIBILITY_CONTROL_HEIGHT, 0);
+    draw_inset(&visibility_draw_surf, control_x, 0, VISIBILITY_CONTROL_WIDTH,
                VISIBILITY_CONTROL_HEIGHT, 2,
                pressed ? scheme->high : scheme->fg, scheme->rounding);
-    drw_draw_text(&visibility_draw_surf, scheme->text, 0, 0,
-                  VISIBILITY_CONTROL_WIDTH, VISIBILITY_CONTROL_HEIGHT, 2,
-                  label, scheme->font_description);
-    wl_surface_damage(visibility_draw_surf.surf, 0, 0,
-                      VISIBILITY_CONTROL_WIDTH, VISIBILITY_CONTROL_HEIGHT);
+    drw_draw_text(&visibility_draw_surf, scheme->text, control_x, 0,
+                  VISIBILITY_CONTROL_WIDTH, VISIBILITY_CONTROL_HEIGHT, 2, label,
+                  scheme->font_description);
+    wl_surface_damage(visibility_draw_surf.surf, 0, 0, visibility_width,
+                      VISIBILITY_CONTROL_HEIGHT);
     drwsurf_flip(&visibility_draw_surf);
 }
 
@@ -1279,13 +1282,15 @@ show_visibility_control(void)
     visibility_layer_surface = zwlr_layer_shell_v1_get_layer_surface(
         layer_shell, visibility_draw_surf.surf, selected_output(), layer,
         namespace);
-    zwlr_layer_surface_v1_set_size(visibility_layer_surface,
-                                   VISIBILITY_CONTROL_WIDTH,
+    zwlr_layer_surface_v1_set_size(visibility_layer_surface, 0,
                                    VISIBILITY_CONTROL_HEIGHT);
-    zwlr_layer_surface_v1_set_anchor(
-        visibility_layer_surface, ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM |
-                                      ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
-    zwlr_layer_surface_v1_set_exclusive_zone(visibility_layer_surface, 0);
+    zwlr_layer_surface_v1_set_anchor(visibility_layer_surface,
+                                     ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM |
+                                         ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
+                                         ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
+    /* Reserve the entire strip: a corner anchor cannot reserve app space. */
+    zwlr_layer_surface_v1_set_exclusive_zone(visibility_layer_surface,
+                                             VISIBILITY_CONTROL_HEIGHT);
     zwlr_layer_surface_v1_set_keyboard_interactivity(visibility_layer_surface,
                                                      false);
     zwlr_layer_surface_v1_add_listener(
@@ -1433,6 +1438,7 @@ visibility_surface_configure(void *data,
     cancel_visibility_input();
     reset_input_lifecycle(last_input_time);
     visibility_configured = true;
+    visibility_width = w;
     resize_visibility_control();
     draw_visibility_control(false);
 }
@@ -1540,6 +1546,9 @@ show()
 
     keyboard_needs_configure = true;
 
+    /* Create the reserved strip first, including after a full hide. */
+    show_visibility_control();
+
     draw_surf.surf = wl_compositor_create_surface(compositor);
     wl_surface_add_listener(draw_surf.surf, &surface_listener, NULL);
     if (wfs_mgr && viewporter) {
@@ -1561,7 +1570,6 @@ show()
     zwlr_layer_surface_v1_add_listener(layer_surface, &layer_surface_listener,
                                        NULL);
     wl_surface_commit(draw_surf.surf);
-    show_visibility_control();
 }
 
 void
