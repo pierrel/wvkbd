@@ -64,15 +64,19 @@ which you want and in what order you want to cycle through them using the
 `-l` parameter (or `--landscape-layers` for landscape mode). This takes takes a ordered comma separated list of layout names
 that are defined in your layout set.
 
-The keyboard has a native `Hide` control immediately above its bottom-right
-edge. It collapses the keyboard without depending on the focused application
-and leaves a small bottom-right `Keyboard` tab that restores it. The tab has no
-exclusive zone, so the focused application regains the keyboard's screen area.
-Press and release the same control to activate it; sliding away cancels.
+The keyboard has a grab handle along its top edge. Drag the handle down to
+collapse the keyboard. The handle then stays at the bottom of the screen;
+tap it or drag it upward to restore the keys. Gestures must start on the handle,
+not a key. Expanded taps and short or sideways drags do not collapse the keys.
+A vertical drag needs 15 logical pixels and activates on release; cancellation
+or sliding off the handle horizontally cancels it. The full-width band reserves
+30 logical pixels, keeping the application's echo area clear in both states.
+The expanded handle sits above the unchanged key grid. This absolute placement
+assumes the phone output has no other bottom panel.
 
 The existing process controls are unchanged: `SIGUSR1` fully hides the keyboard
-and its tab, `SIGUSR2` shows the expanded keyboard, and `SIGRTMIN` toggles full
-visibility; from the collapsed state it fully hides the tab. `--hidden` starts
+and its handle, `SIGUSR2` shows the expanded keyboard, and `SIGRTMIN` toggles full
+visibility; from the collapsed state it fully hides the handle. `--hidden` starts
 with neither surface visible. These controls save
 some start up time and may be appropriate in low-resource environments.
 
