@@ -76,6 +76,7 @@ static uint32_t anchor = ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM |
 
 #define VISIBILITY_CONTROL_WIDTH 92
 #define VISIBILITY_CONTROL_HEIGHT 30
+#define VISIBILITY_DRAG_DISTANCE (VISIBILITY_CONTROL_HEIGHT / 2)
 #define VISIBILITY_MAX_SCALE 8
 
 enum visibility_state {
@@ -94,6 +95,9 @@ struct visibility_input {
     enum visibility_input_owner owner;
     uint32_t token;
     bool valid;
+    bool dragged;
+    wl_fixed_t start_x, start_y;
+    int64_t dx, dy;
 };
 
 /* application state */
@@ -173,9 +177,10 @@ static void layer_surface_configure(void *data,
                                     uint32_t serial, uint32_t w, uint32_t h);
 static void layer_surface_closed(void *data,
                                  struct zwlr_layer_surface_v1 *surface);
-static void visibility_surface_configure(
-    void *data, struct zwlr_layer_surface_v1 *surface, uint32_t serial,
-    uint32_t w, uint32_t h);
+static void visibility_surface_configure(void *data,
+                                         struct zwlr_layer_surface_v1 *surface,
+                                         uint32_t serial, uint32_t w,
+                                         uint32_t h);
 static void visibility_surface_closed(void *data,
                                       struct zwlr_layer_surface_v1 *surface);
 static void flip_landscape();
@@ -253,8 +258,8 @@ static const struct zwlr_layer_surface_v1_listener layer_surface_listener = {
     .closed = layer_surface_closed,
 };
 
-static const struct zwlr_layer_surface_v1_listener
-    visibility_surface_listener = {
+static const struct zwlr_layer_surface_v1_listener visibility_surface_listener =
+    {
         .configure = visibility_surface_configure,
         .closed = visibility_surface_closed,
 };
@@ -262,16 +267,13 @@ static const struct zwlr_layer_surface_v1_listener
 static bool
 visibility_is_control_surface(struct wl_surface *surface)
 {
-    return visibility_draw_surf.surf &&
-           surface == visibility_draw_surf.surf;
+    return visibility_draw_surf.surf && surface == visibility_draw_surf.surf;
 }
 
 static bool
 visibility_fixed_point_inside(wl_fixed_t x, wl_fixed_t y)
 {
-    return x >=
-               wl_fixed_from_int(visibility_width - VISIBILITY_CONTROL_WIDTH) &&
-           y >= 0 && x < wl_fixed_from_int(visibility_width) &&
+    return x >= 0 && y >= 0 && x < wl_fixed_from_int(visibility_width) &&
            y < wl_fixed_from_int(VISIBILITY_CONTROL_HEIGHT);
 }
 
@@ -281,19 +283,20 @@ visibility_input_begin(enum visibility_input_owner owner, uint32_t token)
     if (visibility_input.owner != VisibilityInputNone) {
         return false;
     }
-    visibility_input = (struct visibility_input){.owner = owner,
-                                                 .token = token,
-                                                 .valid = true};
+    visibility_input = (struct visibility_input){
+        .owner = owner, .token = token, .valid = true};
     return true;
 }
 
 static void
 visibility_input_start(enum visibility_input_owner owner, uint32_t token,
-                       uint32_t time)
+                       uint32_t time, wl_fixed_t x, wl_fixed_t y)
 {
     if (!visibility_input_begin(owner, token)) {
         return;
     }
+    visibility_input.start_x = x;
+    visibility_input.start_y = y;
     glide_learning_clear(&glide_learning);
     kbd_clear_glide_undo(&keyboard);
     cancel_active_input(time);
@@ -312,16 +315,35 @@ visibility_input_motion(enum visibility_input_owner owner, uint32_t token,
     return true;
 }
 
+static void
+visibility_input_update(wl_fixed_t x, wl_fixed_t y)
+{
+    visibility_input.dx = (int64_t)x - visibility_input.start_x;
+    visibility_input.dy = (int64_t)y - visibility_input.start_y;
+    if (llabs(visibility_input.dx) >=
+            wl_fixed_from_int(VISIBILITY_DRAG_DISTANCE) ||
+        llabs(visibility_input.dy) >=
+            wl_fixed_from_int(VISIBILITY_DRAG_DISTANCE)) {
+        visibility_input.dragged = true;
+    }
+}
+
 static bool
 visibility_input_finish(enum visibility_input_owner owner, uint32_t token,
                         bool inside)
 {
-    bool activate;
+    bool activate, drag;
+    int64_t dy = visibility == VisibilityCollapsed ? -visibility_input.dy
+                                                   : visibility_input.dy;
 
     if (visibility_input.owner != owner || visibility_input.token != token) {
         return false;
     }
-    activate = visibility_input.valid && inside;
+    drag = dy >= wl_fixed_from_int(VISIBILITY_DRAG_DISTANCE) &&
+           dy > llabs(visibility_input.dx);
+    activate = visibility_input.valid &&
+               (drag || (visibility == VisibilityCollapsed && inside &&
+                         !visibility_input.dragged));
     visibility_input = (struct visibility_input){0};
     return activate;
 }
@@ -380,7 +402,8 @@ wl_touch_down(void *data, struct wl_touch *wl_touch, uint32_t serial,
     last_input_time = time;
     if (visibility_is_control_surface(surface)) {
         if (!normal_input_active() && visibility_fixed_point_inside(x, y)) {
-            visibility_input_start(VisibilityInputTouch, (uint32_t)id, time);
+            visibility_input_start(VisibilityInputTouch, (uint32_t)id, time, x,
+                                   y);
         }
         return;
     }
@@ -450,8 +473,8 @@ wl_touch_up(void *data, struct wl_touch *wl_touch, uint32_t serial,
         if (visibility_input.token != (uint32_t)id) {
             return;
         }
-        activate = visibility_input_finish(VisibilityInputTouch, (uint32_t)id,
-                                           true);
+        activate =
+            visibility_input_finish(VisibilityInputTouch, (uint32_t)id, true);
         if (activate) {
             activate_visibility_control();
         } else {
@@ -508,10 +531,9 @@ wl_touch_up(void *data, struct wl_touch *wl_touch, uint32_t serial,
                     glide_learning_resolve(&glide_learning,
                                            GLIDE_LEARNING_TOP_COMMITTED, 0);
                 }
-                emitted = kbd_commit_glide_result(&keyboard, &matches,
-                                                  result.trace,
-                                                  result.trace_length,
-                                                  result.time);
+                emitted =
+                    kbd_commit_glide_result(&keyboard, &matches, result.trace,
+                                            result.trace_length, result.time);
                 observed = glide_learning_observe(
                     &glide_learning, result.trace, result.trace_points,
                     result.trace_length, &geometry, &matches);
@@ -550,9 +572,10 @@ wl_touch_motion(void *data, struct wl_touch *wl_touch, uint32_t time,
         if (visibility_input.token != (uint32_t)id) {
             return;
         }
+        visibility_input_update(x, y);
         if (visibility_input_motion(
                 VisibilityInputTouch, (uint32_t)id,
-                visibility_fixed_point_inside(x, y))) {
+                x >= 0 && x < wl_fixed_from_int(visibility_width))) {
             draw_visibility_control(false);
         }
         return;
@@ -697,9 +720,11 @@ wl_pointer_motion(void *data, struct wl_pointer *wl_pointer, uint32_t time,
         pointer_on_visibility &&
         visibility_fixed_point_inside(surface_x, surface_y);
     if (visibility_input.owner == VisibilityInputPointer) {
+        visibility_input_update(surface_x, surface_y);
         if (visibility_input_motion(
                 VisibilityInputPointer, visibility_input.token,
-                pointer_inside_visibility)) {
+                surface_x >= 0 &&
+                    surface_x < wl_fixed_from_int(visibility_width))) {
             draw_visibility_control(false);
         }
         return;
@@ -745,8 +770,8 @@ wl_pointer_button(void *data, struct wl_pointer *wl_pointer, uint32_t serial,
         if (pressed || visibility_input.token != button) {
             return;
         }
-        activate = visibility_input_finish(
-            VisibilityInputPointer, button, pointer_inside_visibility);
+        activate = visibility_input_finish(VisibilityInputPointer, button,
+                                           pointer_inside_visibility);
         if (activate) {
             activate_visibility_control();
         } else {
@@ -765,8 +790,7 @@ wl_pointer_button(void *data, struct wl_pointer *wl_pointer, uint32_t serial,
     if (!pointer_on_visibility ||
         keyboard.candidates.owner != KbdCandidateOwnerNone) {
         candidate_event = kbd_candidate_pointer_button(
-            &keyboard, button, pressed,
-            pointer_on_visibility ? -1 : pointer_x,
+            &keyboard, button, pressed, pointer_on_visibility ? -1 : pointer_x,
             pointer_on_visibility ? -1 : pointer_y, time);
         if (candidate_event != KbdCandidateMiss) {
             if (pressed && candidate_event == KbdCandidateDismissed &&
@@ -798,7 +822,9 @@ wl_pointer_button(void *data, struct wl_pointer *wl_pointer, uint32_t serial,
 
     if (pointer_on_visibility) {
         if (!normal_input_active() && pointer_inside_visibility) {
-            visibility_input_start(VisibilityInputPointer, button, time);
+            visibility_input_start(VisibilityInputPointer, button, time,
+                                   wl_fixed_from_int(cur_x),
+                                   wl_fixed_from_int(cur_y));
         }
         return;
     }
@@ -1166,8 +1192,7 @@ refresh_visibility_control_scale(void)
 
 static void
 visibility_fractional_scale_preferred_scale(
-    void *data, struct wp_fractional_scale_v1 *fractional_scale,
-    uint32_t scale)
+    void *data, struct wp_fractional_scale_v1 *fractional_scale, uint32_t scale)
 {
     cancel_visibility_input();
     reset_input_lifecycle(last_input_time);
@@ -1238,23 +1263,19 @@ static void
 draw_visibility_control(bool pressed)
 {
     struct clr_scheme *scheme;
-    const char *label;
-    uint32_t control_x = visibility_width - VISIBILITY_CONTROL_WIDTH;
+    uint32_t bar_width = VISIBILITY_CONTROL_WIDTH / 2;
+    uint32_t control_x = (visibility_width - bar_width) / 2;
 
     if (!visibility_draw_surf.surf || !visibility_draw_surf.buf ||
         !visibility_configured) {
         return;
     }
     scheme = &keyboard.schemes[1];
-    label = visibility == VisibilityCollapsed ? "Keyboard" : "Hide";
     drw_fill_rectangle(&visibility_draw_surf, keyboard.schemes[0].bg, 0, 0,
                        visibility_width, VISIBILITY_CONTROL_HEIGHT, 0);
-    draw_inset(&visibility_draw_surf, control_x, 0, VISIBILITY_CONTROL_WIDTH,
-               VISIBILITY_CONTROL_HEIGHT, 2,
-               pressed ? scheme->high : scheme->fg, scheme->rounding);
-    drw_draw_text(&visibility_draw_surf, scheme->text, control_x, 0,
-                  VISIBILITY_CONTROL_WIDTH, VISIBILITY_CONTROL_HEIGHT, 2, label,
-                  scheme->font_description);
+    drw_fill_rectangle(&visibility_draw_surf,
+                       pressed ? scheme->high : scheme->text, control_x,
+                       VISIBILITY_CONTROL_HEIGHT / 2 - 2, bar_width, 4, 2);
     wl_surface_damage(visibility_draw_surf.surf, 0, 0, visibility_width,
                       VISIBILITY_CONTROL_HEIGHT);
     drwsurf_flip(&visibility_draw_surf);
@@ -1263,39 +1284,47 @@ draw_visibility_control(bool pressed)
 static void
 show_visibility_control(void)
 {
-    if (visibility_layer_surface) {
-        draw_visibility_control(false);
+    if (visibility == VisibilityExpanded && keyboard_needs_configure) {
         return;
     }
-    visibility_draw_surf.surf = wl_compositor_create_surface(compositor);
-    wl_surface_add_listener(visibility_draw_surf.surf, &surface_listener, NULL);
-    if (wfs_mgr && viewporter) {
-        wfs_visibility_draw_surf =
-            wp_fractional_scale_manager_v1_get_fractional_scale(
-                wfs_mgr, visibility_draw_surf.surf);
-        wp_fractional_scale_v1_add_listener(
-            wfs_visibility_draw_surf, &visibility_fractional_scale_listener,
-            NULL);
-        visibility_draw_surf_viewport =
-            wp_viewporter_get_viewport(viewporter, visibility_draw_surf.surf);
+    if (!visibility_layer_surface) {
+        visibility_draw_surf.surf = wl_compositor_create_surface(compositor);
+        wl_surface_add_listener(visibility_draw_surf.surf, &surface_listener,
+                                NULL);
+        if (wfs_mgr && viewporter) {
+            wfs_visibility_draw_surf =
+                wp_fractional_scale_manager_v1_get_fractional_scale(
+                    wfs_mgr, visibility_draw_surf.surf);
+            wp_fractional_scale_v1_add_listener(
+                wfs_visibility_draw_surf, &visibility_fractional_scale_listener,
+                NULL);
+            visibility_draw_surf_viewport = wp_viewporter_get_viewport(
+                viewporter, visibility_draw_surf.surf);
+        }
+        visibility_layer_surface = zwlr_layer_shell_v1_get_layer_surface(
+            layer_shell, visibility_draw_surf.surf, selected_output(), layer,
+            namespace);
+        zwlr_layer_surface_v1_set_size(visibility_layer_surface, 0,
+                                       VISIBILITY_CONTROL_HEIGHT);
+        zwlr_layer_surface_v1_set_anchor(
+            visibility_layer_surface, ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM |
+                                          ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
+                                          ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
+        zwlr_layer_surface_v1_set_keyboard_interactivity(
+            visibility_layer_surface, false);
+        zwlr_layer_surface_v1_add_listener(visibility_layer_surface,
+                                           &visibility_surface_listener, NULL);
     }
-    visibility_layer_surface = zwlr_layer_shell_v1_get_layer_surface(
-        layer_shell, visibility_draw_surf.surf, selected_output(), layer,
-        namespace);
-    zwlr_layer_surface_v1_set_size(visibility_layer_surface, 0,
-                                   VISIBILITY_CONTROL_HEIGHT);
-    zwlr_layer_surface_v1_set_anchor(visibility_layer_surface,
-                                     ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM |
-                                         ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
-                                         ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
-    /* Reserve the entire strip: a corner anchor cannot reserve app space. */
-    zwlr_layer_surface_v1_set_exclusive_zone(visibility_layer_surface,
-                                             VISIBILITY_CONTROL_HEIGHT);
-    zwlr_layer_surface_v1_set_keyboard_interactivity(visibility_layer_surface,
-                                                     false);
-    zwlr_layer_surface_v1_add_listener(
-        visibility_layer_surface, &visibility_surface_listener, NULL);
+    /* The grid reserves both regions; place the handle above its actual height.
+     * A collapsed handle instead reserves its own bottom strip. */
+    zwlr_layer_surface_v1_set_margin(
+        visibility_layer_surface, 0, 0,
+        visibility == VisibilityExpanded ? keyboard.h : 0, 0);
+    zwlr_layer_surface_v1_set_exclusive_zone(
+        visibility_layer_surface,
+        visibility == VisibilityExpanded ? -1 : VISIBILITY_CONTROL_HEIGHT);
     wl_surface_commit(visibility_draw_surf.surf);
+    draw_visibility_control(false);
 }
 
 static void
@@ -1379,6 +1408,8 @@ layer_surface_configure(void *data, struct zwlr_layer_surface_v1 *surface,
         keyboard.h = h;
         keyboard.scale = scale;
         keyboard_needs_configure = false;
+        zwlr_layer_surface_v1_set_exclusive_zone(surface,
+                                                 h + VISIBILITY_CONTROL_HEIGHT);
         if (wfs_mgr && viewporter) {
             wp_viewport_set_destination(draw_surf_viewport, keyboard.w,
                                         keyboard.h);
@@ -1418,6 +1449,7 @@ layer_surface_configure(void *data, struct zwlr_layer_surface_v1 *surface,
         kbd_resize(&keyboard, layouts, NumLayouts);
         drwsurf_flip(&draw_surf);
     }
+    show_visibility_control();
 }
 
 void
@@ -1430,8 +1462,7 @@ layer_surface_closed(void *data, struct zwlr_layer_surface_v1 *surface)
 }
 
 static void
-visibility_surface_configure(void *data,
-                             struct zwlr_layer_surface_v1 *surface,
+visibility_surface_configure(void *data, struct zwlr_layer_surface_v1 *surface,
                              uint32_t serial, uint32_t w, uint32_t h)
 {
     zwlr_layer_surface_v1_ack_configure(surface, serial);
@@ -1445,8 +1476,7 @@ visibility_surface_configure(void *data,
 }
 
 static void
-visibility_surface_closed(void *data,
-                          struct zwlr_layer_surface_v1 *surface)
+visibility_surface_closed(void *data, struct zwlr_layer_surface_v1 *surface)
 {
     hide_visibility_control();
     destroy_keyboard_surfaces(last_input_time);
@@ -1542,13 +1572,11 @@ show()
         return;
     }
 
+    hide_visibility_control();
     visibility = VisibilityExpanded;
     flip_landscape();
 
     keyboard_needs_configure = true;
-
-    /* Create the reserved strip first, including after a full hide. */
-    show_visibility_control();
 
     draw_surf.surf = wl_compositor_create_surface(compositor);
     wl_surface_add_listener(draw_surf.surf, &surface_listener, NULL);
@@ -1566,7 +1594,8 @@ show()
 
     zwlr_layer_surface_v1_set_size(layer_surface, 0, height);
     zwlr_layer_surface_v1_set_anchor(layer_surface, anchor);
-    zwlr_layer_surface_v1_set_exclusive_zone(layer_surface, height);
+    zwlr_layer_surface_v1_set_exclusive_zone(
+        layer_surface, height + VISIBILITY_CONTROL_HEIGHT);
     zwlr_layer_surface_v1_set_keyboard_interactivity(layer_surface, false);
     zwlr_layer_surface_v1_add_listener(layer_surface, &layer_surface_listener,
                                        NULL);

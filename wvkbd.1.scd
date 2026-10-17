@@ -18,11 +18,13 @@ a feedback buzzer, led blinker, or anything that requires more than what's
 needed to input text quickly. The end product should be a static codebase that
 can be patched to add new features.
 
-The native right-aligned *Hide* control collapses the keyboard and leaves a
-right-aligned *Keyboard* control that restores it from any focused application.
-Both controls occupy a reserved 30-logical-pixel strip, preserving readable
-application content; collapsing returns the key grid's screen area.
-Activation requires a press and matching release; sliding away cancels it.
+Drag the top-edge grab handle down to collapse the keyboard. The collapsed
+handle stays at the bottom; tap it or drag it upward to restore the keys.
+Gestures start on the full-width handle band and activate on matching release.
+Vertical drags require 15 logical pixels. Expanded taps and short drags do not
+collapse; a collapsed tap tolerates movement below that threshold.
+Cancelled or horizontally out-of-band drags do not activate. The band reserves
+30 logical pixels in both states. Expanded placement assumes no other bottom panel.
 
 ## OPTIONS
 
@@ -146,7 +148,7 @@ Activation requires a press and matching release; sliding away cancels it.
 You can send signals to wvkbd to hide/show it (e.g. using _kill_(1) with _-s_):
 
 *SIGUSR1*
-	Fully hide the keyboard and its native visibility tab.
+	Fully hide the keyboard and its native visibility handle.
 
 *SIGUSR2*
 	Show the expanded keyboard and its native visibility control.
